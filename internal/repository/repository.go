@@ -25,15 +25,17 @@ func NewRepository() *Repository {
 // SaveEntities принимает срез сущностей и распределяет их по соответствующим слайсам.
 func (r *Repository) SaveEntities(entities []model.Entity) {
 	for _, entity := range entities {
-		switch entity.EntityType() {
-		case "note":
-			r.notes = append(r.notes, entity)
-		case "user":
-			r.users = append(r.users, entity)
-		case "session":
-			r.sessions = append(r.sessions, entity)
-		case "tag":
-			r.tags = append(r.tags, entity)
+		switch v := entity.(type) {
+		case *model.Note:
+			r.notes = append(r.notes, v)
+		case *model.User:
+			r.users = append(r.users, v)
+		case *model.Session:
+			r.sessions = append(r.sessions, v)
+		case *model.Tag:
+			r.tags = append(r.tags, v)
+		default:
+			// Обработать неизвестный тип, логировать
 		}
 	}
 }
