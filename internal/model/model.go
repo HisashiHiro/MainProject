@@ -2,6 +2,12 @@ package model
 
 import "time"
 
+// Entity — общий интерфейс для всех сущностей приложения.
+type Entity interface {
+	EntityType() string // Возвращает тип сущности: "note", "user", "tag", "session"
+	ID() interface{}    // Универсальный метод для получения ID любого типа
+}
+
 // Note — модель заметки. Приватные поля
 type Note struct {
 	id        int64     // ID заметки
@@ -26,7 +32,7 @@ func NewNote(title, content string, tags []string, isPublic bool) *Note {
 }
 
 // ID возвращает ID заметки
-func (n *Note) ID() int64 {
+func (n *Note) ID() interface{} {
 	return n.id
 }
 
@@ -89,6 +95,11 @@ func (n *Note) SetPublic(isPublic bool) {
 	n.updatedAt = time.Now()
 }
 
+func (n *Note) EntityType() string {
+	return "note"
+}
+
+// ---------------------------------------------------------------
 // User — модель пользователя. Приватные поля
 type User struct {
 	id           int64     // ID пользователя
@@ -112,7 +123,7 @@ func NewUser(username, email string, passwordHash []byte) *User {
 }
 
 // ID возвращает ID пользователя.
-func (u *User) ID() int64 {
+func (u *User) ID() interface{} {
 	return u.id
 }
 
@@ -175,6 +186,11 @@ type Session struct {
 	userAgent string    // User-Agent
 }
 
+func (u *User) EntityType() string {
+	return "user"
+}
+
+// ---------------------------------------------------------------
 // NewSession создаёт новую сессию.
 func NewSession(id string, userID int64, expiresAt time.Time, ip, userAgent string) *Session {
 	return &Session{
@@ -187,7 +203,7 @@ func NewSession(id string, userID int64, expiresAt time.Time, ip, userAgent stri
 }
 
 // ID возвращает ID сессии.
-func (s *Session) ID() string {
+func (s *Session) ID() interface{} {
 	return s.id
 }
 
@@ -209,6 +225,11 @@ func (s *Session) IP() string {
 // UserAgent возвращает User-Agent.
 func (s *Session) User()
 
+func (s *Session) EntityType() string {
+	return "session"
+}
+
+// ---------------------------------------------------------------
 // Tag — модель тега. Приватные поля
 // Для поиска заметки по тегу, например: "личные", "рабоота", "покупки"
 type Tag struct {
@@ -224,7 +245,7 @@ func NewTag(name string) *Tag {
 }
 
 // ID возвращает ID тега.
-func (t *Tag) ID() int64 {
+func (t *Tag) ID() interface{} {
 	return t.id
 }
 
@@ -241,4 +262,8 @@ func (t *Tag) Name() string {
 // SetName обновляет название тега.
 func (t *Tag) SetName(name string) {
 	t.name = name
+}
+
+func (t *Tag) EntityType() string {
+	return "tag"
 }
