@@ -21,13 +21,14 @@ type Repository struct {
 
 	// Канал для приёма сущностей
 	inputChan chan []model.Entity
-
 	// Сохранение контекста для отслеживания завершения
 	ctx context.Context
+	// Указатель на WaitGroup для учёта горутины
+	wg *sync.WaitGroup
 }
 
 // NewRepository создаёт новый репозиторий.
-func NewRepository(ctx context.Context) *Repository {
+func NewRepository(ctx context.Context, wg *sync.WaitGroup) *Repository {
 	repo := &Repository{
 		notes:     make([]model.Entity, 0),
 		users:     make([]model.Entity, 0),
@@ -37,6 +38,7 @@ func NewRepository(ctx context.Context) *Repository {
 
 		// Сохранение переданного контекста
 		ctx: ctx,
+		wg:  wg,
 	}
 
 	// Запуск горутины для обработки входящих сущностей
@@ -52,6 +54,9 @@ func (r *Repository) InputChannel() chan<- []model.Entity {
 
 // processEntities — горутина, непрерывно обрабатывающая входящие сущности из канала inputChan
 func (r *Repository) processEntities() {
+	// Откладываем вызов wg.Done() до завершения функции
+	defer r.wg.Done()
+
 	for {
 		// Одновременное ожидание:
 		// 1. Данных из канала inputChan

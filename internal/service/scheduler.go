@@ -5,6 +5,7 @@ import (
 	"MainProject/internal/repository"
 	"context"
 	"fmt"
+	"sync"
 	"time"
 )
 
@@ -18,10 +19,13 @@ type SchedulerService struct {
 	prevUsers    int
 	prevSessions int
 	prevTags     int
+
+	// Указатель на WaitGroup для учёта горутин
+	wg *sync.WaitGroup
 }
 
 // NewSchedulerService создаёт новый экземпляр сервиса планировщика
-func NewSchedulerService(repo *repository.Repository) *SchedulerService {
+func NewSchedulerService(repo *repository.Repository, wg *sync.WaitGroup) *SchedulerService {
 	return &SchedulerService{
 		repo: repo,
 
@@ -30,6 +34,9 @@ func NewSchedulerService(repo *repository.Repository) *SchedulerService {
 		prevUsers:    0,
 		prevSessions: 0,
 		prevTags:     0,
+
+		// Сохраняем указатель на WaitGroup
+		wg: wg,
 	}
 }
 
@@ -37,22 +44,26 @@ func NewSchedulerService(repo *repository.Repository) *SchedulerService {
 // Параметр interval определяет, как часто будут создаваться и отправляться новые сущности
 // Все сущности упаковываются в срез и отправляются в канал репозитория
 func (s *SchedulerService) Run(ctx context.Context, interval time.Duration) {
-
-	// Запускаем горутину для логирования изменений (каждые 200 мс)
-	go s.runLogger(ctx, 200*time.Millisecond)
+	// Регистрируем горутину runLogger в WaitGroup
+	s.wg.Add(1)
+	go func() {
+		// Запуск горутиныыыы для логирования изменений (каждые 200 мс)
+		s.runLogger(ctx, 200*time.Millisecond)
+		s.wg.Done() // Завершение горутины логгера
+	}()
 
 	ticker := time.NewTicker(interval) // Создаётся Ticker с заданным интервалом
 	defer ticker.Stop()                // Гарантируем остановку тикера при завершении горутин
 
 	for {
-		// Ожидание:
+		// Используем select для одновременного ожидания:
 		// 1. Срабатывания тикера (ticker.C)
 		// 2. Сигнала отмены из контекста (ctx.Done())
 		select {
 		case <-ticker.C:
 			// Генерация новой заметки
 			note := model.NewNote("Пример", "Содержимое", []string{"тест"}, true)
-			note.SetID(1) // Устанавливаем ID
+			note.SetID(1) // Устанавливаем ID (в реальной системе должен быть уникальный генератор)
 
 			// Генерация нового пользователя
 			user := model.NewUser("test", "test@example.com", []byte("hash"))
@@ -86,21 +97,21 @@ func (s *SchedulerService) Run(ctx context.Context, interval time.Duration) {
 func (s *SchedulerService) runLogger(ctx context.Context, interval time.Duration) {
 	// Создание тикера для периодических проверок
 	ticker := time.NewTicker(interval)
-	defer ticker.Stop() // Остановка тикера при завершении
+	defer ticker.Stop()
 
 	for {
-		// Аналогично Run(): ожидаем либо срабатывание тикера, либо сигнал отмены
+		// Ожидание срабатывание тикера или сигнала отмены
 		select {
 		case <-ticker.C:
-			// Периодически вызываем метод логирования
+			// Периодический вызов метода логирования
 			s.logChanges()
 
 		case <-ctx.Done():
 			// Получен сигнал отмены —> необходимо завершить горутину
-			// Возможыные причины:
+			// Возмодные причины:
 			// - Нажатие Ctrl+C (SIGINT)
 			// - Отправка сигнала kill (SIGTERM)
-			// - Timeout graceful shutdown
+			// - Graceful shutdown timeout
 			println("Logger завершает работу...")
 			return // Выход из цикла и завершение горутины
 		}
