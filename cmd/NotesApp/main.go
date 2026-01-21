@@ -4,6 +4,7 @@ import (
 	"MainProject/internal/repository"
 	"MainProject/internal/service"
 	"context"
+	"log"
 	"os"
 	"os/signal"
 	"sync"
@@ -27,7 +28,6 @@ func main() {
 
 	// Создание репозиториЯ, передача контекста и WaitGroup
 	repo := repository.NewRepository(ctx, &wg)
-
 	// Создание сервиса Планировщик, передача ему репозитория и WaitGroup
 	scheduler := service.NewSchedulerService(repo, &wg)
 
@@ -45,6 +45,15 @@ func main() {
 
 	// Отмена контекста. Сигнал для всех горутин о необходимости завершиться
 	cancel()
+
+	// Ожидание, пока processEntities() обработает оставшиеся данные
+	// 2 секунды на обработку буфера канала
+	log.Println("Ожидание завершения обработки оставшихся данных...")
+	time.Sleep(2 * time.Second)
+
+	// Cохранение всех данных перед выходом
+	log.Println("Сохранение данных перед завершением...")
+	repo.Flush()
 
 	// Ожидание завершения всех горутин (до 10 сек)
 	done := make(chan struct{})

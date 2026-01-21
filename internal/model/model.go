@@ -4,99 +4,99 @@ import "time"
 
 // Entity — общий интерфейс для всех сущностей приложения
 type Entity interface {
-	ID() interface{}    // Универсальный метод для получения ID любого типа
+	GetID() interface{} // Универсальный метод для получения ID любого типа
 	EntityType() string // Возвращает тип сущности: "note", "user", "tag", "session"
 }
 
 // Note — модель заметки
 type Note struct {
-	id        int64     // Уникальный идентификатор заметки
-	title     string    // Заголовок заметки
-	content   string    // Основное содержимое
-	createdAt time.Time // Дата/Время создания
-	updatedAt time.Time // Дата/Время обновления
-	tags      []string  // Список тегов
-	isPublic  bool      // Флаг публичности заметки (Нет/Да)
+	ID        int64     `json:"id"`         // Уникальный идентификатор заметки
+	Title     string    `json:"title"`      // Заголовок заметки
+	Content   string    `json:"content"`    // Основное содержимое
+	CreatedAt time.Time `json:"created_at"` // Дата/Время создания
+	UpdatedAt time.Time `json:"updated_at"` // Дата/Время обновления
+	Tags      []string  `json:"tags"`       // Список тегов
+	IsPublic  bool      `json:"is_public"`  // Флаг публичности заметки (Нет/Да)
 }
 
 // NewNote() создаёт новую заметку с заданными параметрами
 // Устанавливает текущие значения createdAt и updatedAt
 func NewNote(title, content string, tags []string, isPublic bool) *Note {
 	return &Note{
-		title:     title,
-		content:   content,
-		tags:      tags,
-		isPublic:  isPublic,
-		createdAt: time.Now(),
-		updatedAt: time.Now(),
+		Title:     title,
+		Content:   content,
+		Tags:      tags,
+		IsPublic:  isPublic,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
 	}
 }
 
-// ID() возвращает идентификатор заметки
-func (n *Note) ID() interface{} {
-	return n.id
+// Возвращает идентификатор заметки
+func (n *Note) GetID() interface{} {
+	return n.ID
 }
 
-// SetID() устанавливает идентификатор заметки (например, после сохранения в БД)
+// Устанавливает идентификатор заметки (например, после сохранения в БД)
 func (n *Note) SetID(id int64) {
-	n.id = id
+	n.ID = id
 }
 
-// Title() возвращает заголовок заметки
-func (n *Note) Title() string {
-	return n.title
+// Возвращает заголовок заметки
+func (n *Note) GetTitle() string {
+	return n.Title
 }
 
-// SetTitle() обновляет заголовок
+// Обновляет заголовок
 func (n *Note) SetTitle(title string) {
-	n.title = title
-	n.updatedAt = time.Now()
+	n.Title = title
+	n.UpdatedAt = time.Now()
 }
 
-// Content() возвращает содержимое заметки
-func (n *Note) Content() string {
-	return n.content
+// Возвращает содержимое заметки
+func (n *Note) GetContent() string {
+	return n.Content
 }
 
-// SetContent() обновляет содержимое
+// Обновляет содержимое
 func (n *Note) SetContent(content string) {
-	n.content = content
-	n.updatedAt = time.Now()
+	n.Content = content
+	n.UpdatedAt = time.Now()
 }
 
-// CreatedAt() возвращает дату создания
-func (n *Note) CreatedAt() time.Time {
-	return n.createdAt
+// Возвращает дату создания
+func (n *Note) GetCreatedAt() time.Time {
+	return n.CreatedAt
 }
 
-// UpdatedAt() возвращает дату последнего обновления
-func (n *Note) UpdatedAt() time.Time {
-	return n.updatedAt
+// Возвращает дату последнего обновления
+func (n *Note) GetUpdatedAt() time.Time {
+	return n.UpdatedAt
 }
 
-// Tags() возвращает список тегов
-func (n *Note) Tags() []string {
-	return n.tags
+// Возвращает список тегов
+func (n *Note) GetTags() []string {
+	return n.Tags
 }
 
-// AddTag() добавляет новый тег к заметке и обновляет дату последнего изменения
+// Добавляет новый тег к заметке и обновляет дату последнего изменения
 func (n *Note) AddTag(tag string) {
-	n.tags = append(n.tags, tag)
-	n.updatedAt = time.Now()
+	n.Tags = append(n.Tags, tag)
+	n.UpdatedAt = time.Now()
 }
 
-// IsPublic() возвращает флаг публичности заметки
-func (n *Note) IsPublic() bool {
-	return n.isPublic
+// Возвращает флаг публичности заметки
+func (n *Note) GetIsPublic() bool {
+	return n.IsPublic
 }
 
-// SetPublic() устанавливает флаг публичности и обновляет дату последнего изменения
+// Устанавливает флаг публичности и обновляет дату последнего изменения
 func (n *Note) SetPublic(isPublic bool) {
-	n.isPublic = isPublic
-	n.updatedAt = time.Now()
+	n.IsPublic = isPublic
+	n.UpdatedAt = time.Now()
 }
 
-// EntityType возвращает тип сущности для интерфейса Entity
+// Возвращает тип сущности для интерфейса Entity
 func (n *Note) EntityType() string {
 	return "note"
 }
@@ -104,89 +104,89 @@ func (n *Note) EntityType() string {
 // ---------------------------------------------------------------
 // User — модель пользователя
 type User struct {
-	id           int64     // Уникальный идентификатор пользователя
-	username     string    // Логин пользователя
-	email        string    // Email пользователя
-	passwordHash []byte    // Хеш пароля
-	createdAt    time.Time // Дата регистрации
-	lastLogin    time.Time // Дата последнего входа
-	isActive     bool      // Статус активности аккаунта
+	ID           int64     `json:"id"`            // Уникальный идентификатор пользователя
+	Username     string    `json:"username"`      // Логин пользователя
+	Email        string    `json:"email"`         // Email пользователя
+	PasswordHash []byte    `json:"password_hash"` // Хеш пароля
+	CreatedAt    time.Time `json:"created_at"`    // Дата регистрации
+	LastLogin    time.Time `json:"last_login"`    // Дата последнего входа
+	IsActive     bool      `json:"is_active"`     // Статус активности аккаунта
 }
 
 // NewUser() создаёт нового пользователя с заданными параметрами
 // Устанавливает текущую дату регистрации и активирует аккаунт
 func NewUser(username, email string, passwordHash []byte) *User {
 	return &User{
-		username:     username,
-		email:        email,
-		passwordHash: passwordHash,
-		createdAt:    time.Now(),
-		isActive:     true,
+		Username:     username,
+		Email:        email,
+		PasswordHash: passwordHash,
+		CreatedAt:    time.Now(),
+		IsActive:     true,
 	}
 }
 
-// ID() возвращает идентификатор пользователя
-func (u *User) ID() interface{} {
-	return u.id
+// Возвращает идентификатор пользователя
+func (u *User) GetID() interface{} {
+	return u.ID
 }
 
-// SetID)() устанавливает идентификатор пользователя
+// Устанавливает идентификатор пользователя
 func (u *User) SetID(id int64) {
-	u.id = id
+	u.ID = id
 }
 
-// Username() возвращает логин пользователя
-func (u *User) Username() string {
-	return u.username
+// Возвращает логин пользователя
+func (u *User) GetUsername() string {
+	return u.Username
 }
 
-// Email() возвращает email пользователя
-func (u *User) Email() string {
-	return u.email
+// Возвращает email пользователя
+func (u *User) GetEmail() string {
+	return u.Email
 }
 
-// PasswordHash() возвращает хеш пароля
-func (u *User) PasswordHash() []byte {
-	return u.passwordHash
+// Возвращает хеш пароля
+func (u *User) GetPasswordHash() []byte {
+	return u.PasswordHash
 }
 
-// SetPasswordHash() обновляет хеш пароля
+// Обновляет хеш пароля
 func (u *User) SetPasswordHash(hash []byte) {
-	u.passwordHash = hash
+	u.PasswordHash = hash
 }
 
-// CreatedAt() возвращает дату регистрации пользователя
-func (u *User) CreatedAt() time.Time {
-	return u.createdAt
+// Возвращает дату регистрации пользователя
+func (u *User) GetCreatedAt() time.Time {
+	return u.CreatedAt
 }
 
-// LastLogin() возвращает дату последнего входа
-func (u *User) LastLogin() time.Time {
-	return u.lastLogin
+// Возвращает дату последнего входа
+func (u *User) GetLastLogin() time.Time {
+	return u.LastLogin
 }
 
-// SetLastLogin() обновляет дату последнего входа
+// Обновляет дату последнего входа
 func (u *User) SetLastLogin(t time.Time) {
-	u.lastLogin = t
+	u.LastLogin = t
 }
 
-// IsActive() возвращает статус активности
-func (u *User) IsActive() bool {
-	return u.isActive
+// Возвращает статус активности
+func (u *User) GetIsActive() bool {
+	return u.IsActive
 }
 
-// SetActive() устанавливает статус активности
+// Устанавливает статус активности
 func (u *User) SetActive(active bool) {
-	u.isActive = active
+	u.IsActive = active
 }
 
 // Session — модель сессии пользователя
 type Session struct {
-	id        string    // Уникальный идентификатор сессии (UUID)
-	userID    int64     // ID пользователя сессии
-	expiresAt time.Time // Время истечения сессии
-	ip        string    // IP-адрес пользователя
-	browser   string    // Информация о браузере
+	ID        string    `json:"id"`         // Уникальный идентификатор сессии (UUID)
+	UserID    int64     `json:"user_id"`    // ID пользователя сессии
+	ExpiresAt time.Time `json:"expires_at"` // Время истечения сессии
+	IP        string    `json:"ip"`         // IP-адрес пользователя
+	Browser   string    `json:"browser"`    // Информация о браузере
 }
 
 func (u *User) EntityType() string {
@@ -197,40 +197,40 @@ func (u *User) EntityType() string {
 // NewSession создаёт новую сессию с заданными параметрами
 func NewSession(id string, userID int64, expiresAt time.Time, ip, browser string) *Session {
 	return &Session{
-		id:        id,
-		userID:    userID,
-		expiresAt: expiresAt,
-		ip:        ip,
-		browser:   browser,
+		ID:        id,
+		UserID:    userID,
+		ExpiresAt: expiresAt,
+		IP:        ip,
+		Browser:   browser,
 	}
 }
 
-// ID() возвращает идентификатор сессии
-func (s *Session) ID() interface{} {
-	return s.id
+// Возвращает идентификатор сессии
+func (s *Session) GetID() interface{} {
+	return s.ID
 }
 
-// UserID() возвращает ID пользователя сессии
-func (s *Session) UserID() int64 {
-	return s.userID
+// Возвращает ID пользователя сессии
+func (s *Session) GetUserID() int64 {
+	return s.UserID
 }
 
-// ExpiresAt() возвращает время истечения сессии
-func (s *Session) ExpiresAt() time.Time {
-	return s.expiresAt
+// Возвращает время истечения сессии
+func (s *Session) GetExpiresAt() time.Time {
+	return s.ExpiresAt
 }
 
-// IP() возвращает IP-адрес пользователя
-func (s *Session) IP() string {
-	return s.ip
+// Возвращает IP-адрес пользователя
+func (s *Session) GetIP() string {
+	return s.IP
 }
 
-// Browser() возвращает информацию о браузере
-func (s *Session) Browser() string {
-	return s.browser
+// Возвращает информацию о браузере
+func (s *Session) GetBrowser() string {
+	return s.Browser
 }
 
-// EntityType() возвращает тип сущности для интерфейса Entity
+// Возвращает тип сущности для интерфейса Entity
 func (s *Session) EntityType() string {
 	return "session"
 }
@@ -239,38 +239,38 @@ func (s *Session) EntityType() string {
 // Tag — модель тега. Приватные поля
 // Для поиска заметки по тегу, например: "личные", "рабоота", "покупки"
 type Tag struct {
-	id   int64  // Уникальный идентификатор тега
-	name string // Название тега
+	ID      int64  `json:"id"`      // Уникальный идентификатор тега
+	Tagname string `json:"tagname"` // Название тега
 }
 
 // NewTag() создаёт новый тег с заданным именем
-func NewTag(name string) *Tag {
+func NewTag(tagname string) *Tag {
 	return &Tag{
-		name: name,
+		Tagname: tagname,
 	}
 }
 
-// ID() возвращает идентификатор тега
-func (t *Tag) ID() interface{} {
-	return t.id
+// Возвращает идентификатор тега
+func (t *Tag) GetID() interface{} {
+	return t.ID
 }
 
-// SetID() устанавливает идентификатор тега
+// Устанавливает идентификатор тега
 func (t *Tag) SetID(id int64) {
-	t.id = id
+	t.ID = id
 }
 
-// Name() возвращает название тега
-func (t *Tag) Name() string {
-	return t.name
+// Возвращает название тега
+func (t *Tag) GetTagname() string {
+	return t.Tagname
 }
 
-// SetName() обновляет название тега
-func (t *Tag) SetName(name string) {
-	t.name = name
+// Обновляет название тега
+func (t *Tag) SetTagname(tagname string) {
+	t.Tagname = tagname
 }
 
-// EntityType() возвращает тип сущности для интерфейса Entity
+// Возвращает тип сущности для интерфейса Entity
 func (t *Tag) EntityType() string {
 	return "tag"
 }
