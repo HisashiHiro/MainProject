@@ -1,16 +1,20 @@
 package model
 
-import "time"
+import (
+	"encoding/json"
+	"fmt"
+	"time"
+)
 
 // Entity — общий интерфейс для всех сущностей приложения
 type Entity interface {
-	GetID() interface{} // Универсальный метод для получения ID любого типа
+	ID() interface{}    // Универсальный метод для получения ID любого типа
 	EntityType() string // Возвращает тип сущности: "note", "user", "tag", "session"
 }
 
 // Note — модель заметки
 type Note struct {
-	ID        int64     `json:"id"`         // Уникальный идентификатор заметки
+	id        int64     // Уникальный идентификатор заметки
 	Title     string    `json:"title"`      // Заголовок заметки
 	Content   string    `json:"content"`    // Основное содержимое
 	CreatedAt time.Time `json:"created_at"` // Дата/Время создания
@@ -33,18 +37,35 @@ func NewNote(title, content string, tags []string, isPublic bool) *Note {
 }
 
 // Возвращает идентификатор заметки
-func (n *Note) GetID() interface{} {
-	return n.ID
+func (n *Note) ID() interface{} {
+	return n.id
+}
+
+// Реализация интерфейс json.Marshaler
+func (n *Note) MarshalJSON() ([]byte, error) {
+	var idField interface{}
+	switch v := n.ID().(type) {
+	case int64:
+		idField = v
+	case string:
+		idField = v
+	default:
+		return nil, fmt.Errorf("неподдерживаемый тип ID: %T", v)
+	}
+
+	type Alias Note
+	return json.Marshal(&struct {
+		ID interface{} `json:"id"`
+		*Alias
+	}{
+		ID:    idField,
+		Alias: (*Alias)(n),
+	})
 }
 
 // Устанавливает идентификатор заметки (например, после сохранения в БД)
 func (n *Note) SetID(id int64) {
-	n.ID = id
-}
-
-// Возвращает заголовок заметки
-func (n *Note) GetTitle() string {
-	return n.Title
+	n.id = id
 }
 
 // Обновляет заголовок
@@ -53,41 +74,16 @@ func (n *Note) SetTitle(title string) {
 	n.UpdatedAt = time.Now()
 }
 
-// Возвращает содержимое заметки
-func (n *Note) GetContent() string {
-	return n.Content
-}
-
 // Обновляет содержимое
 func (n *Note) SetContent(content string) {
 	n.Content = content
 	n.UpdatedAt = time.Now()
 }
 
-// Возвращает дату создания
-func (n *Note) GetCreatedAt() time.Time {
-	return n.CreatedAt
-}
-
-// Возвращает дату последнего обновления
-func (n *Note) GetUpdatedAt() time.Time {
-	return n.UpdatedAt
-}
-
-// Возвращает список тегов
-func (n *Note) GetTags() []string {
-	return n.Tags
-}
-
 // Добавляет новый тег к заметке и обновляет дату последнего изменения
 func (n *Note) AddTag(tag string) {
 	n.Tags = append(n.Tags, tag)
 	n.UpdatedAt = time.Now()
-}
-
-// Возвращает флаг публичности заметки
-func (n *Note) GetIsPublic() bool {
-	return n.IsPublic
 }
 
 // Устанавливает флаг публичности и обновляет дату последнего изменения
@@ -104,7 +100,7 @@ func (n *Note) EntityType() string {
 // ---------------------------------------------------------------
 // User — модель пользователя
 type User struct {
-	ID           int64     `json:"id"`            // Уникальный идентификатор пользователя
+	id           int64     // Уникальный идентификатор пользователя
 	Username     string    `json:"username"`      // Логин пользователя
 	Email        string    `json:"email"`         // Email пользователя
 	PasswordHash []byte    `json:"password_hash"` // Хеш пароля
@@ -126,28 +122,35 @@ func NewUser(username, email string, passwordHash []byte) *User {
 }
 
 // Возвращает идентификатор пользователя
-func (u *User) GetID() interface{} {
-	return u.ID
+func (u *User) ID() interface{} {
+	return u.id
+}
+
+// Реализация интерфейс json.Marshaler
+func (n *User) MarshalJSON() ([]byte, error) {
+	var idField interface{}
+	switch v := n.ID().(type) {
+	case int64:
+		idField = v
+	case string:
+		idField = v
+	default:
+		return nil, fmt.Errorf("неподдерживаемый тип ID: %T", v)
+	}
+
+	type Alias User
+	return json.Marshal(&struct {
+		ID interface{} `json:"id"`
+		*Alias
+	}{
+		ID:    idField,
+		Alias: (*Alias)(n),
+	})
 }
 
 // Устанавливает идентификатор пользователя
 func (u *User) SetID(id int64) {
-	u.ID = id
-}
-
-// Возвращает логин пользователя
-func (u *User) GetUsername() string {
-	return u.Username
-}
-
-// Возвращает email пользователя
-func (u *User) GetEmail() string {
-	return u.Email
-}
-
-// Возвращает хеш пароля
-func (u *User) GetPasswordHash() []byte {
-	return u.PasswordHash
+	u.id = id
 }
 
 // Обновляет хеш пароля
@@ -155,24 +158,9 @@ func (u *User) SetPasswordHash(hash []byte) {
 	u.PasswordHash = hash
 }
 
-// Возвращает дату регистрации пользователя
-func (u *User) GetCreatedAt() time.Time {
-	return u.CreatedAt
-}
-
-// Возвращает дату последнего входа
-func (u *User) GetLastLogin() time.Time {
-	return u.LastLogin
-}
-
 // Обновляет дату последнего входа
 func (u *User) SetLastLogin(t time.Time) {
 	u.LastLogin = t
-}
-
-// Возвращает статус активности
-func (u *User) GetIsActive() bool {
-	return u.IsActive
 }
 
 // Устанавливает статус активности
@@ -180,24 +168,25 @@ func (u *User) SetActive(active bool) {
 	u.IsActive = active
 }
 
+// Возвращает тип сущности для интерфейса Entity
+func (n *User) EntityType() string {
+	return "user"
+}
+
 // Session — модель сессии пользователя
 type Session struct {
-	ID        string    `json:"id"`         // Уникальный идентификатор сессии (UUID)
+	id        string    // Уникальный идентификатор сессии (UUID)
 	UserID    int64     `json:"user_id"`    // ID пользователя сессии
 	ExpiresAt time.Time `json:"expires_at"` // Время истечения сессии
 	IP        string    `json:"ip"`         // IP-адрес пользователя
 	Browser   string    `json:"browser"`    // Информация о браузере
 }
 
-func (u *User) EntityType() string {
-	return "user"
-}
-
 // ---------------------------------------------------------------
 // NewSession создаёт новую сессию с заданными параметрами
 func NewSession(id string, userID int64, expiresAt time.Time, ip, browser string) *Session {
 	return &Session{
-		ID:        id,
+		id:        id,
 		UserID:    userID,
 		ExpiresAt: expiresAt,
 		IP:        ip,
@@ -206,28 +195,30 @@ func NewSession(id string, userID int64, expiresAt time.Time, ip, browser string
 }
 
 // Возвращает идентификатор сессии
-func (s *Session) GetID() interface{} {
-	return s.ID
+func (s *Session) ID() interface{} {
+	return s.id
 }
 
-// Возвращает ID пользователя сессии
-func (s *Session) GetUserID() int64 {
-	return s.UserID
-}
+// Реализация интерфейс json.Marshaler
+func (n *Session) MarshalJSON() ([]byte, error) {
+	var idField interface{}
+	switch v := n.ID().(type) {
+	case int64:
+		idField = v
+	case string:
+		idField = v
+	default:
+		return nil, fmt.Errorf("неподдерживаемый тип ID: %T", v)
+	}
 
-// Возвращает время истечения сессии
-func (s *Session) GetExpiresAt() time.Time {
-	return s.ExpiresAt
-}
-
-// Возвращает IP-адрес пользователя
-func (s *Session) GetIP() string {
-	return s.IP
-}
-
-// Возвращает информацию о браузере
-func (s *Session) GetBrowser() string {
-	return s.Browser
+	type Alias Session
+	return json.Marshal(&struct {
+		ID interface{} `json:"id"`
+		*Alias
+	}{
+		ID:    idField,
+		Alias: (*Alias)(n),
+	})
 }
 
 // Возвращает тип сущности для интерфейса Entity
@@ -239,7 +230,7 @@ func (s *Session) EntityType() string {
 // Tag — модель тега. Приватные поля
 // Для поиска заметки по тегу, например: "личные", "рабоота", "покупки"
 type Tag struct {
-	ID      int64  `json:"id"`      // Уникальный идентификатор тега
+	id      int64  // Уникальный идентификатор тега
 	Tagname string `json:"tagname"` // Название тега
 }
 
@@ -251,18 +242,35 @@ func NewTag(tagname string) *Tag {
 }
 
 // Возвращает идентификатор тега
-func (t *Tag) GetID() interface{} {
-	return t.ID
+func (t *Tag) ID() interface{} {
+	return t.id
+}
+
+// Реализация интерфейс json.Marshaler
+func (n *Tag) MarshalJSON() ([]byte, error) {
+	var idField interface{}
+	switch v := n.ID().(type) {
+	case int64:
+		idField = v
+	case string:
+		idField = v
+	default:
+		return nil, fmt.Errorf("неподдерживаемый тип ID: %T", v)
+	}
+
+	type Alias Tag
+	return json.Marshal(&struct {
+		ID interface{} `json:"id"`
+		*Alias
+	}{
+		ID:    idField,
+		Alias: (*Alias)(n),
+	})
 }
 
 // Устанавливает идентификатор тега
 func (t *Tag) SetID(id int64) {
-	t.ID = id
-}
-
-// Возвращает название тега
-func (t *Tag) GetTagname() string {
-	return t.Tagname
+	t.id = id
 }
 
 // Обновляет название тега

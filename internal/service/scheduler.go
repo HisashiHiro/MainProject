@@ -142,7 +142,8 @@ func (s *SchedulerService) logChanges() {
 		added := currentNotes - s.prevNotes
 		fmt.Printf("[LOG] Добавлено заметок: %d\n", added)
 		for i := s.prevNotes; i < currentNotes; i++ {
-			fmt.Printf("  Note: ID=%v, Title=%s\n", notes[i].GetID(), notes[i].(*model.Note).GetTitle())
+			note := notes[i].(*model.Note)
+			fmt.Printf("  Note: ID=%d, Title=%s\n", notes[i].ID(), note.Title)
 		}
 	}
 
@@ -151,7 +152,8 @@ func (s *SchedulerService) logChanges() {
 		added := currentUsers - s.prevUsers
 		fmt.Printf("[LOG] Добавлено пользователей: %d\n", added)
 		for i := s.prevUsers; i < currentUsers; i++ {
-			fmt.Printf("  User: ID=%v, Username=%s\n", users[i].GetID(), users[i].(*model.User).GetUsername())
+			user := users[i].(*model.User)
+			fmt.Printf("  User: ID=%v, Username=%s\n", users[i].ID(), user.Username)
 		}
 	}
 
@@ -160,7 +162,8 @@ func (s *SchedulerService) logChanges() {
 		added := currentSessions - s.prevSessions
 		fmt.Printf("[LOG] Добавлено сессий: %d\n", added)
 		for i := s.prevSessions; i < currentSessions; i++ {
-			fmt.Printf("  Session: ID=%v, UserID=%d\n", sessions[i].GetID(), sessions[i].(*model.Session).GetUserID())
+			session := sessions[i].(*model.Session)
+			fmt.Printf("  Session: ID=%v, UserID=%d\n", sessions[i].ID(), session.UserID)
 		}
 	}
 
@@ -169,7 +172,8 @@ func (s *SchedulerService) logChanges() {
 		added := currentTags - s.prevTags
 		fmt.Printf("[LOG] Добавлено тегов: %d\n", added)
 		for i := s.prevTags; i < currentTags; i++ {
-			fmt.Printf("  Tag: ID=%v, Name=%s\n", tags[i].GetID(), tags[i].(*model.Tag).GetTagname())
+			tag := tags[i].(*model.Tag)
+			fmt.Printf("  Tag: ID=%v, Name=%s\n", tags[i].ID(), tag.Tagname)
 		}
 	}
 
