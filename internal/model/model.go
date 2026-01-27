@@ -14,25 +14,27 @@ type Entity interface {
 
 // Note — модель заметки
 type Note struct {
-	id        int64     // Уникальный идентификатор заметки
-	Title     string    `json:"title"`      // Заголовок заметки
-	Content   string    `json:"content"`    // Основное содержимое
-	CreatedAt time.Time `json:"created_at"` // Дата/Время создания
-	UpdatedAt time.Time `json:"updated_at"` // Дата/Время обновления
-	Tags      []string  `json:"tags"`       // Список тегов
-	IsPublic  bool      `json:"is_public"`  // Флаг публичности заметки (Нет/Да)
+	id          int64     // Уникальный идентификатор заметки
+	Title       string    `json:"title"`       // Заголовок заметки
+	Content     string    `json:"content"`     // Основное содержимое
+	CreatedAt   time.Time `json:"created_at"`  // Дата/Время создания
+	UpdatedAt   time.Time `json:"updated_at"`  // Дата/Время обновления
+	Tags        []string  `json:"tags"`        // Список тегов
+	IsPublic    bool      `json:"is_public"`   // Флаг публичности заметки (Нет/Да)
+	IsGenerated bool      `json:"isGenerated"` // Флаг: создана ли сущность сервисом
 }
 
 // NewNote() создаёт новую заметку с заданными параметрами
 // Устанавливает текущие значения createdAt и updatedAt
 func NewNote(title, content string, tags []string, isPublic bool) *Note {
 	return &Note{
-		Title:     title,
-		Content:   content,
-		Tags:      tags,
-		IsPublic:  isPublic,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		Title:       title,
+		Content:     content,
+		Tags:        tags,
+		IsPublic:    isPublic,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+		IsGenerated: true, // Создана сервисом
 	}
 }
 
@@ -107,6 +109,7 @@ type User struct {
 	CreatedAt    time.Time `json:"created_at"`    // Дата регистрации
 	LastLogin    time.Time `json:"last_login"`    // Дата последнего входа
 	IsActive     bool      `json:"is_active"`     // Статус активности аккаунта
+	IsGenerated  bool      `json:"isGenerated"`   // Флаг: создана ли сущность сервисом
 }
 
 // NewUser() создаёт нового пользователя с заданными параметрами
@@ -118,6 +121,7 @@ func NewUser(username, email string, passwordHash []byte) *User {
 		PasswordHash: passwordHash,
 		CreatedAt:    time.Now(),
 		IsActive:     true,
+		IsGenerated:  true, // Создана сервисом
 	}
 }
 
@@ -175,22 +179,24 @@ func (n *User) EntityType() string {
 
 // Session — модель сессии пользователя
 type Session struct {
-	id        string    // Уникальный идентификатор сессии (UUID)
-	UserID    int64     `json:"user_id"`    // ID пользователя сессии
-	ExpiresAt time.Time `json:"expires_at"` // Время истечения сессии
-	IP        string    `json:"ip"`         // IP-адрес пользователя
-	Browser   string    `json:"browser"`    // Информация о браузере
+	id          string    // Уникальный идентификатор сессии (UUID)
+	UserID      int64     `json:"user_id"`     // ID пользователя сессии
+	ExpiresAt   time.Time `json:"expires_at"`  // Время истечения сессии
+	IP          string    `json:"ip"`          // IP-адрес пользователя
+	Browser     string    `json:"browser"`     // Информация о браузере
+	IsGenerated bool      `json:"isGenerated"` // Флаг: создана ли сущность сервисом
 }
 
 // ---------------------------------------------------------------
 // NewSession создаёт новую сессию с заданными параметрами
 func NewSession(id string, userID int64, expiresAt time.Time, ip, browser string) *Session {
 	return &Session{
-		id:        id,
-		UserID:    userID,
-		ExpiresAt: expiresAt,
-		IP:        ip,
-		Browser:   browser,
+		id:          id,
+		UserID:      userID,
+		ExpiresAt:   expiresAt,
+		IP:          ip,
+		Browser:     browser,
+		IsGenerated: true, // Создана сервисом
 	}
 }
 
@@ -230,14 +236,16 @@ func (s *Session) EntityType() string {
 // Tag — модель тега. Приватные поля
 // Для поиска заметки по тегу, например: "личные", "рабоота", "покупки"
 type Tag struct {
-	id      int64  // Уникальный идентификатор тега
-	Tagname string `json:"tagname"` // Название тега
+	id          int64  // Уникальный идентификатор тега
+	Tagname     string `json:"tagname"`     // Название тега
+	IsGenerated bool   `json:"isGenerated"` // Флаг: создана ли сущность сервисом
 }
 
 // NewTag() создаёт новый тег с заданным именем
 func NewTag(tagname string) *Tag {
 	return &Tag{
-		Tagname: tagname,
+		Tagname:     tagname,
+		IsGenerated: true, // Создана сервисом
 	}
 }
 

@@ -256,6 +256,7 @@ func (r *Repository) loadNotes() {
 	// Преобразуем в []model.Entity
 	var entities []model.Entity
 	for _, note := range rawNotes {
+		note.IsGenerated = false
 		entities = append(entities, &note) // или &note, если нужно сохранить указатель
 	}
 
@@ -288,6 +289,7 @@ func (r *Repository) loadUsers() {
 
 	var entities []model.Entity
 	for _, user := range rawUsers {
+		user.IsGenerated = false
 		entities = append(entities, &user)
 	}
 
@@ -319,6 +321,7 @@ func (r *Repository) loadSessions() {
 
 	var entities []model.Entity
 	for _, session := range rawSessions {
+		session.IsGenerated = false
 		entities = append(entities, &session)
 	}
 
@@ -349,6 +352,7 @@ func (r *Repository) loadTags() {
 
 	var entities []model.Entity
 	for _, tag := range rawTags {
+		tag.IsGenerated = false
 		entities = append(entities, &tag)
 	}
 
