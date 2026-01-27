@@ -244,23 +244,26 @@ func (r *Repository) loadNotes() {
 	}
 	defer file.Close()
 
-	log.Printf("Загружаем данные из data/notes.json...")
-
 	// Создаём JSON-декодер и читаем данные
+	var rawNotes []model.Note
 	decoder := json.NewDecoder(file)
-	var notes []model.Entity
-	err = decoder.Decode(&notes)
+	err = decoder.Decode(&rawNotes)
 	if err != nil {
 		println("Ошибка при декодировании notes.json:", err.Error())
 		return
 	}
 
+	// Преобразуем в []model.Entity
+	var entities []model.Entity
+	for _, note := range rawNotes {
+		entities = append(entities, &note) // или &note, если нужно сохранить указатель
+	}
+
 	// Блокируем доступ к слайсу, записываем данные, разблокируем
 	r.muNotes.Lock()
-	r.notes = notes
+	r.notes = entities
 	r.muNotes.Unlock()
 
-	log.Printf("Загрузка notes.json завершена. Загружено %d записей.", len(notes))
 }
 
 func (r *Repository) loadUsers() {
@@ -275,21 +278,23 @@ func (r *Repository) loadUsers() {
 	}
 	defer file.Close()
 
-	log.Printf("Загружаем данные из data/users.json...")
-
+	var rawUsers []model.User
 	decoder := json.NewDecoder(file)
-	var users []model.Entity
-	err = decoder.Decode(&users)
+	err = decoder.Decode(&rawUsers)
 	if err != nil {
 		println("Ошибка при декодировании users.json:", err.Error())
 		return
 	}
 
+	var entities []model.Entity
+	for _, user := range rawUsers {
+		entities = append(entities, &user)
+	}
+
 	r.muUsers.Lock()
-	r.users = users
+	r.users = entities
 	r.muUsers.Unlock()
 
-	log.Printf("Загрузка users.json завершена. Загружено %d записей.", len(users))
 }
 
 func (r *Repository) loadSessions() {
@@ -304,21 +309,22 @@ func (r *Repository) loadSessions() {
 	}
 	defer file.Close()
 
-	log.Printf("Загружаем данные из data/sessions.json...")
-
+	var rawSessions []model.Session
 	decoder := json.NewDecoder(file)
-	var sessions []model.Entity
-	err = decoder.Decode(&sessions)
+	err = decoder.Decode(&rawSessions)
 	if err != nil {
 		println("Ошибка при декодировании sessions.json:", err.Error())
 		return
 	}
 
-	r.muSessions.Lock()
-	r.sessions = sessions
-	r.muSessions.Unlock()
+	var entities []model.Entity
+	for _, session := range rawSessions {
+		entities = append(entities, &session)
+	}
 
-	log.Printf("Загрузка sessions.json завершена. Загружено %d записей.", len(sessions))
+	r.muSessions.Lock()
+	r.sessions = entities
+	r.muSessions.Unlock()
 }
 
 func (r *Repository) loadTags() {
@@ -333,21 +339,22 @@ func (r *Repository) loadTags() {
 	}
 	defer file.Close()
 
-	log.Printf("Загружаем данные из data/tags.json...")
-
+	var rawTags []model.Tag
 	decoder := json.NewDecoder(file)
-	var tags []model.Entity
-	err = decoder.Decode(&tags)
+	err = decoder.Decode(&rawTags)
 	if err != nil {
 		println("Ошибка при декодировании tags.json:", err.Error())
 		return
 	}
 
-	r.muTags.Lock()
-	r.tags = tags
-	r.muTags.Unlock()
+	var entities []model.Entity
+	for _, tag := range rawTags {
+		entities = append(entities, &tag)
+	}
 
-	log.Printf("Загрузка tags.json завершена. Загружено %d записей.", len(tags))
+	r.muTags.Lock()
+	r.tags = entities
+	r.muTags.Unlock()
 }
 
 // Методы для безопасного чтения (с мьютексами)
