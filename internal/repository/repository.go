@@ -3,10 +3,14 @@ package repository
 import (
 	"MainProject/internal/model"
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"log"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
+	"time"
 )
 
 // Repository — репозиторий для хранения сущностей разных типов
@@ -384,4 +388,78 @@ func (r *Repository) GetTags() []model.Entity {
 	r.muTags.Lock()
 	defer r.muTags.Unlock()
 	return r.tags
+}
+
+// AddNote — добавляет заметку, генерирует ID
+func (r *Repository) AddNote(note *model.Note) int64 {
+	r.muNotes.Lock()
+	id := int64(len(r.notes) + 1)
+	note.SetID(id)
+	r.notes = append(r.notes, note)
+	r.muNotes.Unlock()
+	return id
+}
+
+// FindNoteById — ищет заметку по ID
+func (r *Repository) FindNoteById(id int64) (*model.Note, bool) {
+	r.muNotes.Lock()
+	defer r.muNotes.Unlock()
+	for _, entity := range r.notes {
+		if entity.(*model.Note).ID() == id {
+			return entity.(*model.Note), true
+		}
+	}
+	return nil, false
+}
+
+// UpdateNote — обновляет заметку
+func (r *Repository) UpdateNote(id int64, updated *model.Note) bool {
+	r.muNotes.Lock()
+	defer r.muNotes.Unlock()
+	for i, entity := range r.notes {
+		if entity.(*model.Note).ID() == id {
+			r.notes[i] = updated
+			return true
+		}
+	}
+	return false
+}
+
+// DeleteNote — удаляет заметку
+func (r *Repository) DeleteNote(id int64) bool {
+	r.muNotes.Lock()
+	defer r.muNotes.Unlock()
+	for i, entity := range r.notes {
+		if entity.(*model.Note).ID() == id {
+			r.notes = append(r.notes[:i], r.notes[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
+// SaveNoteToCSV — сохраняет заметку в CSV
+func (r *Repository) SaveNoteToCSV(note *model.Note) error {
+	file, err := os.OpenFile("data/notes.csv", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	writer := csv.NewWriter(file)
+	record := []string{
+		strconv.FormatInt(note.ID().(int64), 10),
+		note.Title,
+		note.Content,
+		note.CreatedAt.Format(time.RFC3339),
+		note.UpdatedAt.Format(time.RFC3339),
+		strings.Join(note.Tags, ";"),
+		strconv.FormatBool(note.IsPublic),
+	}
+	err = writer.Write(record)
+	if err != nil {
+		return err
+	}
+	writer.Flush()
+	return nil
 }

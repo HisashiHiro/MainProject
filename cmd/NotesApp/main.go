@@ -1,10 +1,12 @@
 package main
 
 import (
+	"MainProject/internal/handlers"
 	"MainProject/internal/repository"
 	"MainProject/internal/service"
 	"context"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"sync"
@@ -37,6 +39,20 @@ func main() {
 	go func() {
 		scheduler.Run(ctx, 5*time.Second)
 		wg.Done() // Завершение
+	}()
+
+	// HTTP‑сервер
+	httpServer := &http.Server{
+		Addr:    ":8080",           // Порт 8080
+		Handler: setupRoutes(repo), // Маршрутизация запросов
+	}
+
+	// Запуск сервера в отдельной горутине
+	go func() {
+		log.Println("Запуск HTTP-сервера на :8080")
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Ошибка при запуске сервера: %v", err)
+		}
 	}()
 
 	// Блокировка в режииме ожидания сигнала ОС (например, Ctrl+C)
@@ -73,4 +89,58 @@ func main() {
 
 	// После выхода из select main() завершается,
 	// что приводит к остановке всего приложения
+
+	// Пытаемся корректно остановить HTTP‑сервер
+	if err := httpServer.Shutdown(ctx); err != nil {
+		log.Printf("Ошибка при завершении сервера: %v", err)
+	}
+
+}
+
+// setupRoutes — настраивает HTTP‑маршрутизацию
+// Принимает репозиторий, чтобы обработчики могли работать с данными
+// Возвращает http.Handler (мультиплексор маршрутов)
+func setupRoutes(repo *repository.Repository) http.Handler {
+	mux := http.NewServeMux() // Создаём маршрутизатор
+
+	// Маршрут для создания заметки (POST /api/item)
+	mux.HandleFunc("/api/item", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			handlers.HandlePostItem(w, r, repo) // Обработчик создания
+		default:
+			http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
+		}
+	})
+
+	// Маршрут для операций с конкретной заметкой (-GET/PUT/DELETE /api/item/{id})
+	mux.HandleFunc("/api/item/", func(w http.ResponseWriter, r *http.Request) {
+		idStr := r.URL.Path[len("/api/item/"):]
+		if idStr == "" {
+			http.Error(w, "ID не указан", http.StatusBadRequest)
+			return
+		}
+
+		switch r.Method {
+		case http.MethodGet:
+			handlers.HandleGetItem(w, r, repo, idStr)
+		case http.MethodPut:
+			handlers.HandlePutItem(w, r, repo, idStr)
+		case http.MethodDelete:
+			handlers.HandleDeleteItem(w, r, repo, idStr)
+		default:
+			http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
+		}
+	})
+
+	// Маршрут для получения списка всех заметок (GET /api/items)
+	mux.HandleFunc("/api/items", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
+			return
+		}
+		handlers.HandleGetItems(w, r, repo)
+	})
+
+	return mux
 }
