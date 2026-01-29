@@ -3,6 +3,9 @@ package repository
 import (
 	"MainProject/internal/model"
 	"context"
+	"encoding/json"
+	"log"
+	"os"
 	"sync"
 )
 
@@ -29,6 +32,12 @@ type Repository struct {
 
 // NewRepository создаёт новый репозиторий.
 func NewRepository(ctx context.Context, wg *sync.WaitGroup) *Repository {
+	// Создаём папку data/, если её нет
+	err := os.MkdirAll("data", 0755) // 0755 — права: rwxr-xr-x
+	if err != nil {
+		log.Printf("Не удалось создать папку data/: %v", err)
+		return nil
+	}
 	repo := &Repository{
 		notes:     make([]model.Entity, 0),
 		users:     make([]model.Entity, 0),
@@ -41,6 +50,10 @@ func NewRepository(ctx context.Context, wg *sync.WaitGroup) *Repository {
 		wg:  wg,
 	}
 
+	// Загрузка данных из файлов при старте
+	repo.loadData()
+
+	wg.Add(1)
 	// Запуск горутины для обработки входящих сущностей
 	go repo.processEntities()
 
@@ -68,6 +81,7 @@ func (r *Repository) processEntities() {
 			if !ok {
 				return
 			}
+			log.Printf("Получено %d сущностей для обработки", len(entities))
 			// Обработка каждой сущности в полученной группе
 			for _, entity := range entities {
 				// Определение конкретного типа сущности через type switch
@@ -93,16 +107,258 @@ func (r *Repository) processEntities() {
 					r.tags = append(r.tags, v)
 					r.muTags.Unlock()
 				default:
-					// Тип сущности не распознан (логирование ошибки)
+					log.Printf("Неизвестный тип сущности: %T (значение: %v)", entity, entity)
+
 				}
 			}
 		case <-r.ctx.Done():
-			// Получен сигнал отмены (вызван cancel())
-			// Закрытие канала inputChan
-			close(r.inputChan)
+			select {
+			case <-r.inputChan: // Пытаемся прочитать, чтобы проверить, закрыт ли канал
+				// Канал уже закрыт
+			default:
+				// Канал ещё открыт
+				// Получен сигнал отмены (вызван cancel())
+				// Закрытие канала inputChan
+				close(r.inputChan)
+				log.Println("Канал inputChan закрыт по сигналу контекста")
+			}
 			return // Завершение горутины
 		}
 	}
+}
+
+// Методы для сохранения данных в файлы
+func (r *Repository) saveNotes() {
+	r.muNotes.Lock()
+	defer r.muNotes.Unlock()
+
+	// Открываем файл для записи (создание нового или перезапись существующего)
+	file, err := os.Create("data/notes.json")
+	if err != nil {
+		log.Printf("Ошибка при создании data/notes.json: %v", err)
+		return
+	}
+	defer file.Close() // Закрытие файла
+
+	// Создаём JSON-энкодер и записываем данные
+	encoder := json.NewEncoder(file)
+	err = encoder.Encode(r.notes)
+	if err != nil {
+		log.Printf("Ошибка при кодировании notes в JSON: %v", err)
+	} else {
+		log.Printf("Сохранено %d записей в data/notes.json", len(r.notes))
+	}
+}
+
+func (r *Repository) saveUsers() {
+	r.muUsers.Lock()
+	defer r.muUsers.Unlock()
+
+	file, err := os.Create("data/users.json")
+	if err != nil {
+		log.Printf("Ошибка при создании data/users.json: %v", err)
+		return
+	}
+	defer file.Close()
+
+	encoder := json.NewEncoder(file)
+	err = encoder.Encode(r.users)
+	if err != nil {
+		log.Printf("Ошибка при кодировании users в JSON: %v", err)
+	} else {
+		log.Printf("Сохранено %d записей в data/users.json", len(r.notes))
+	}
+}
+
+func (r *Repository) saveSessions() {
+	r.muSessions.Lock()
+	defer r.muSessions.Unlock()
+
+	file, err := os.Create("data/sessions.json")
+	if err != nil {
+		log.Printf("Ошибка при создании data/sessions.json: %v", err)
+		return
+	}
+	defer file.Close()
+
+	encoder := json.NewEncoder(file)
+	err = encoder.Encode(r.sessions)
+	if err != nil {
+		log.Printf("Ошибка при кодировании sessions в JSON: %v", err)
+	} else {
+		log.Printf("Сохранено %d записей в data/sessions.json", len(r.notes))
+	}
+}
+
+func (r *Repository) saveTags() {
+	r.muTags.Lock()
+	defer r.muTags.Unlock()
+
+	file, err := os.Create("data/tags.json")
+	if err != nil {
+		log.Printf("Ошибка при создании data/tags.json: %v", err)
+		return
+	}
+	defer file.Close()
+
+	encoder := json.NewEncoder(file)
+	err = encoder.Encode(r.tags)
+	if err != nil {
+		log.Printf("Ошибка при кодировании tags в JSON: %v", err)
+	} else {
+		log.Printf("Сохранено %d записей в data/tags.json", len(r.notes))
+	}
+}
+
+// Flush принудительно сохраняет все данные репозитория в файлы
+// Вызыв перед завершением приложения для гарантии записи всех накопленных сущностей
+func (r *Repository) Flush() {
+	log.Println("Запущено принудительное сохранение всех данных...")
+
+	r.saveNotes()
+	r.saveUsers()
+	r.saveSessions()
+	r.saveTags()
+
+	log.Println("Принудительное сохранение завершено.")
+}
+
+// Методы для загрузки данных из файлов
+func (r *Repository) loadData() {
+	r.loadNotes()
+	r.loadUsers()
+	r.loadSessions()
+	r.loadTags()
+}
+
+// loadNotes загружает данные из notes.json в слайс notes
+func (r *Repository) loadNotes() {
+	file, err := os.Open("data/notes.json")
+	if os.IsNotExist(err) {
+		log.Printf("Файл notes.json не найден — пропускаем загрузку")
+		return
+	}
+	if err != nil {
+		println("Ошибка при открытии notes.json:", err.Error())
+		return
+	}
+	defer file.Close()
+
+	// Создаём JSON-декодер и читаем данные
+	var rawNotes []model.Note
+	decoder := json.NewDecoder(file)
+	err = decoder.Decode(&rawNotes)
+	if err != nil {
+		println("Ошибка при декодировании notes.json:", err.Error())
+		return
+	}
+
+	// Преобразуем в []model.Entity
+	var entities []model.Entity
+	for _, note := range rawNotes {
+		note.IsGenerated = false
+		entities = append(entities, &note) // или &note, если нужно сохранить указатель
+	}
+
+	// Блокируем доступ к слайсу, записываем данные, разблокируем
+	r.muNotes.Lock()
+	r.notes = entities
+	r.muNotes.Unlock()
+
+}
+
+func (r *Repository) loadUsers() {
+	file, err := os.Open("data/users.json")
+	if os.IsNotExist(err) {
+		log.Printf("Файл users.json не найден — пропускаем загрузку")
+		return
+	}
+	if err != nil {
+		println("Ошибка при открытии users.json:", err.Error())
+		return
+	}
+	defer file.Close()
+
+	var rawUsers []model.User
+	decoder := json.NewDecoder(file)
+	err = decoder.Decode(&rawUsers)
+	if err != nil {
+		println("Ошибка при декодировании users.json:", err.Error())
+		return
+	}
+
+	var entities []model.Entity
+	for _, user := range rawUsers {
+		user.IsGenerated = false
+		entities = append(entities, &user)
+	}
+
+	r.muUsers.Lock()
+	r.users = entities
+	r.muUsers.Unlock()
+
+}
+
+func (r *Repository) loadSessions() {
+	file, err := os.Open("data/sessions.json")
+	if os.IsNotExist(err) {
+		log.Printf("Файл sessions.json не найден — пропускаем загрузку")
+		return
+	}
+	if err != nil {
+		println("Ошибка при открытии sessions.json:", err.Error())
+		return
+	}
+	defer file.Close()
+
+	var rawSessions []model.Session
+	decoder := json.NewDecoder(file)
+	err = decoder.Decode(&rawSessions)
+	if err != nil {
+		println("Ошибка при декодировании sessions.json:", err.Error())
+		return
+	}
+
+	var entities []model.Entity
+	for _, session := range rawSessions {
+		session.IsGenerated = false
+		entities = append(entities, &session)
+	}
+
+	r.muSessions.Lock()
+	r.sessions = entities
+	r.muSessions.Unlock()
+}
+
+func (r *Repository) loadTags() {
+	file, err := os.Open("data/tags.json")
+	if os.IsNotExist(err) {
+		log.Printf("Файл tags.json не найден — пропускаем загрузку")
+		return
+	}
+	if err != nil {
+		println("Ошибка при открытии tags.json:", err.Error())
+		return
+	}
+	defer file.Close()
+
+	var rawTags []model.Tag
+	decoder := json.NewDecoder(file)
+	err = decoder.Decode(&rawTags)
+	if err != nil {
+		println("Ошибка при декодировании tags.json:", err.Error())
+		return
+	}
+
+	var entities []model.Entity
+	for _, tag := range rawTags {
+		tag.IsGenerated = false
+		entities = append(entities, &tag)
+	}
+
+	r.muTags.Lock()
+	r.tags = entities
+	r.muTags.Unlock()
 }
 
 // Методы для безопасного чтения (с мьютексами)
