@@ -463,3 +463,39 @@ func (r *Repository) SaveNoteToCSV(note *model.Note) error {
 	writer.Flush()
 	return nil
 }
+
+// DeleteNoteFromCSV — удаляет заметку из CSV
+func (r *Repository) DeleteNoteFromCSV(id int64) error {
+	file, err := os.Open("data/notes.csv")
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	records, err := reader.ReadAll()
+	if err != nil {
+		return err
+	}
+
+	var filtered [][]string
+	for _, record := range records {
+		if record[0] != strconv.FormatInt(id, 10) { // record[0] — ID
+			filtered = append(filtered, record)
+		}
+	}
+
+	outFile, err := os.Create("data/notes.csv")
+	if err != nil {
+		return err
+	}
+	defer outFile.Close()
+
+	writer := csv.NewWriter(outFile)
+	err = writer.WriteAll(filtered)
+	if err != nil {
+		return err
+	}
+	writer.Flush()
+	return nil
+}

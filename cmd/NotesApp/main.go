@@ -5,6 +5,7 @@ import (
 	"MainProject/internal/repository"
 	"MainProject/internal/service"
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -12,9 +13,29 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v4"
+	"github.com/joho/godotenv"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
+// LoadEnv загружает переменные из .env
+func LoadEnv() error {
+	err := godotenv.Load()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func main() {
+	// Загрузка .env
+	if err := LoadEnv(); err != nil {
+		log.Fatalf("Ошибка загрузки .env: %v", err)
+	}
+
 	// Создание контекста с возможностью отмены
 	// cancel() будет вызван при получении сигнала ОС или по таймауту
 	ctx, cancel := context.WithCancel(context.Background())
@@ -41,10 +62,32 @@ func main() {
 		wg.Done() // Завершение
 	}()
 
+	// Gin-маршрутизация
+	r := gin.Default()
+
+	// Public routes
+	r.POST("/login", handlers.HandleLogin)
+
+	// Protected routes (требуют JWT)
+	authorized := r.Group("/")
+	authorized.Use(JWTMiddleware())
+	{
+		authorized.POST("/api/item", handlers.HandlePostItem(repo))
+		authorized.PUT("/api/item/:id", handlers.HandlePutItem(repo))
+		authorized.DELETE("/api/item/:id", handlers.HandleDeleteItem(repo))
+	}
+
+	// Public GET
+	r.GET("/api/item/:id", handlers.HandleGetItem(repo))
+	r.GET("/api/items", handlers.HandleGetItems(repo))
+
+	// Swagger
+	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+
 	// HTTP‑сервер
 	httpServer := &http.Server{
-		Addr:    ":8080",           // Порт 8080
-		Handler: setupRoutes(repo), // Маршрутизация запросов
+		Addr:    ":8080", // Порт 8080
+		Handler: r,       // Маршрутизация запросов
 	}
 
 	// Запуск сервера в отдельной горутине
@@ -97,50 +140,34 @@ func main() {
 
 }
 
-// setupRoutes — настраивает HTTP‑маршрутизацию
-// Принимает репозиторий, чтобы обработчики могли работать с данными
-// Возвращает http.Handler (мультиплексор маршрутов)
-func setupRoutes(repo *repository.Repository) http.Handler {
-	mux := http.NewServeMux() // Создаём маршрутизатор
-
-	// Маршрут для создания заметки (POST /api/item)
-	mux.HandleFunc("/api/item", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodPost:
-			handlers.HandlePostItem(w, r, repo) // Обработчик создания
-		default:
-			http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
-		}
-	})
-
-	// Маршрут для операций с конкретной заметкой (-GET/PUT/DELETE /api/item/{id})
-	mux.HandleFunc("/api/item/", func(w http.ResponseWriter, r *http.Request) {
-		idStr := r.URL.Path[len("/api/item/"):]
-		if idStr == "" {
-			http.Error(w, "ID не указан", http.StatusBadRequest)
+// JWTMiddleware — middleware для проверки JWT в заголовке Authorization
+func JWTMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})
+			c.Abort()
 			return
 		}
 
-		switch r.Method {
-		case http.MethodGet:
-			handlers.HandleGetItem(w, r, repo, idStr)
-		case http.MethodPut:
-			handlers.HandlePutItem(w, r, repo, idStr)
-		case http.MethodDelete:
-			handlers.HandleDeleteItem(w, r, repo, idStr)
-		default:
-			http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
+		tokenString := authHeader
+		if len(tokenString) > 7 && tokenString[:7] == "Bearer " {
+			tokenString = tokenString[7:]
 		}
-	})
 
-	// Маршрут для получения списка всех заметок (GET /api/items)
-	mux.HandleFunc("/api/items", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
+		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+			}
+			return []byte(os.Getenv("JWT_SECRET")), nil
+		})
+
+		if err != nil || !token.Valid {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
+			c.Abort()
 			return
 		}
-		handlers.HandleGetItems(w, r, repo)
-	})
 
-	return mux
+		c.Next()
+	}
 }
