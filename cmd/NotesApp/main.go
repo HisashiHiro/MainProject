@@ -1,3 +1,15 @@
+// @title Notes API
+// @version 1.0
+// @description API для управления заметками с JWT аутентификацией
+
+// @host localhost:8080
+// @BasePath /
+
+// @securityDefinitions.apikey bearerAuth
+// @in header
+// @name Authorization
+// @description Введите токен в формате: Bearer {token}
+
 package main
 
 import (
@@ -13,6 +25,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	_ "MainProject/cmd/NotesApp/docs"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v4"
@@ -34,6 +48,14 @@ func main() {
 	// Загрузка .env
 	if err := LoadEnv(); err != nil {
 		log.Fatalf("Ошибка загрузки .env: %v", err)
+	}
+
+	// Проверяем обязательные переменные окружения
+	requiredEnvVars := []string{"JWT_SECRET", "LOGIN", "PASSWORD"}
+	for _, envVar := range requiredEnvVars {
+		if os.Getenv(envVar) == "" {
+			log.Fatalf("Требуется установить переменную окружения: %s", envVar)
+		}
 	}
 
 	// Создание контекста с возможностью отмены

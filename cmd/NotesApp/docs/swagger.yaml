@@ -1,4 +1,262 @@
+basePath: /
+definitions:
+  handlers.ErrorResponse:
+    properties:
+      error:
+        example: error message
+        type: string
+    type: object
+  handlers.LoginRequest:
+    description: Структура для передачи учетных данных
+    properties:
+      login:
+        example: admin
+        maxLength: 50
+        minLength: 3
+        type: string
+      password:
+        example: secret
+        minLength: 6
+        type: string
+    required:
+    - login
+    - password
+    type: object
+  handlers.SuccessResponse:
+    properties:
+      token:
+        example: eyJh...
+        type: string
+    type: object
+  model.Note:
+    properties:
+      content:
+        description: Основное содержимое
+        type: string
+      created_at:
+        description: Дата/Время создания
+        type: string
+      is_public:
+        description: Флаг публичности заметки (Нет/Да)
+        type: boolean
+      isGenerated:
+        description: 'Флаг: создана ли сущность сервисом'
+        type: boolean
+      tags:
+        description: Список тегов
+        items:
+          type: string
+        type: array
+      title:
+        description: Заголовок заметки
+        type: string
+      updated_at:
+        description: Дата/Время обновления
+        type: string
+    type: object
+host: localhost:8080
 info:
   contact: {}
-paths: {}
+  description: API для управления заметками с JWT аутентификацией
+  title: Notes API
+  version: "1.0"
+paths:
+  /api/item:
+    post:
+      consumes:
+      - application/json
+      description: Создаёт новую заметку с указанными полями. Требуется авторизация.
+      parameters:
+      - description: Данные заметки
+        in: body
+        name: note
+        required: true
+        schema:
+          $ref: '#/definitions/model.Note'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - bearerAuth: []
+      summary: Создать заметку
+      tags:
+      - notes
+  /api/item/{id}:
+    delete:
+      description: Удаляет заметку с указанным ID. Требуется авторизация.
+      parameters:
+      - description: ID заметки
+        example: '"1"'
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - bearerAuth: []
+      summary: Удалить заметку
+      tags:
+      - notes
+    get:
+      consumes:
+      - application/json
+      description: Возвращает заметку с указанным ID. Доступно без авторизации.
+      parameters:
+      - description: ID заметки
+        example: '"1"'
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Получить заметку по ID
+      tags:
+      - notes
+    put:
+      consumes:
+      - application/json
+      description: Обновляет заметку с указанным ID. Требуется авторизация.
+      parameters:
+      - description: ID заметки
+        example: '"1"'
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Обновлённые данные заметки
+        in: body
+        name: note
+        required: true
+        schema:
+          $ref: '#/definitions/model.Note'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      security:
+      - bearerAuth: []
+      summary: Обновить заметку
+      tags:
+      - notes
+  /api/items:
+    get:
+      description: Возвращает все существующие заметки. Доступно без авторизации.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Список заметок
+          schema:
+            items:
+              $ref: '#/definitions/model.Note'
+            type: array
+      summary: Список заметок
+      tags:
+      - notes
+  /login:
+    post:
+      consumes:
+      - application/json
+      description: Получает JWT-токен по логину и паролю из переменных окружения LOGIN
+        и PASSWORD
+      parameters:
+      - description: Учетные данные
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Авторизация
+      tags:
+      - auth
+securityDefinitions:
+  bearerAuth:
+    description: 'Введите токен в формате: Bearer {token}'
+    in: header
+    name: Authorization
+    type: apiKey
 swagger: "2.0"
