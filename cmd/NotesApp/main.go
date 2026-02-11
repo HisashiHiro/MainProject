@@ -1,18 +1,63 @@
+// @title Notes API
+// @version 1.0
+// @description API для управления заметками с JWT аутентификацией
+
+// @host localhost:8080
+// @BasePath /
+
+// @securityDefinitions.apikey bearerAuth
+// @in header
+// @name Authorization
+// @description Введите токен в формате: Bearer {token}
+
 package main
 
 import (
+	"MainProject/internal/handlers"
 	"MainProject/internal/repository"
 	"MainProject/internal/service"
 	"context"
+	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
 	"time"
+
+	_ "MainProject/cmd/NotesApp/docs"
+
+	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v4"
+	"github.com/joho/godotenv"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
+// LoadEnv загружает переменные из .env
+func LoadEnv() error {
+	err := godotenv.Load()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func main() {
+	// Загрузка .env
+	if err := LoadEnv(); err != nil {
+		log.Fatalf("Ошибка загрузки .env: %v", err)
+	}
+
+	// Проверяем обязательные переменные окружения
+	requiredEnvVars := []string{"JWT_SECRET", "LOGIN", "PASSWORD"}
+	for _, envVar := range requiredEnvVars {
+		if os.Getenv(envVar) == "" {
+			log.Fatalf("Требуется установить переменную окружения: %s", envVar)
+		}
+	}
+
 	// Создание контекста с возможностью отмены
 	// cancel() будет вызван при получении сигнала ОС или по таймауту
 	ctx, cancel := context.WithCancel(context.Background())
@@ -37,6 +82,42 @@ func main() {
 	go func() {
 		scheduler.Run(ctx, 5*time.Second)
 		wg.Done() // Завершение
+	}()
+
+	// Gin-маршрутизация
+	r := gin.Default()
+
+	// Public routes
+	r.POST("/login", handlers.HandleLogin)
+
+	// Protected routes (требуют JWT)
+	authorized := r.Group("/")
+	authorized.Use(JWTMiddleware())
+	{
+		authorized.POST("/api/item", handlers.HandlePostItem(repo))
+		authorized.PUT("/api/item/:id", handlers.HandlePutItem(repo))
+		authorized.DELETE("/api/item/:id", handlers.HandleDeleteItem(repo))
+	}
+
+	// Public GET
+	r.GET("/api/item/:id", handlers.HandleGetItem(repo))
+	r.GET("/api/items", handlers.HandleGetItems(repo))
+
+	// Swagger
+	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+
+	// HTTP‑сервер
+	httpServer := &http.Server{
+		Addr:    ":8080", // Порт 8080
+		Handler: r,       // Маршрутизация запросов
+	}
+
+	// Запуск сервера в отдельной горутине
+	go func() {
+		log.Println("Запуск HTTP-сервера на :8080")
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Ошибка при запуске сервера: %v", err)
+		}
 	}()
 
 	// Блокировка в режииме ожидания сигнала ОС (например, Ctrl+C)
@@ -73,4 +154,42 @@ func main() {
 
 	// После выхода из select main() завершается,
 	// что приводит к остановке всего приложения
+
+	// Пытаемся корректно остановить HTTP‑сервер
+	if err := httpServer.Shutdown(ctx); err != nil {
+		log.Printf("Ошибка при завершении сервера: %v", err)
+	}
+
+}
+
+// JWTMiddleware — middleware для проверки JWT в заголовке Authorization
+func JWTMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})
+			c.Abort()
+			return
+		}
+
+		tokenString := authHeader
+		if len(tokenString) > 7 && tokenString[:7] == "Bearer " {
+			tokenString = tokenString[7:]
+		}
+
+		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+			}
+			return []byte(os.Getenv("JWT_SECRET")), nil
+		})
+
+		if err != nil || !token.Valid {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
+			c.Abort()
+			return
+		}
+
+		c.Next()
+	}
 }
