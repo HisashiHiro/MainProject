@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+package notes;
+
+option go_package = "./;notes";
+
+// Сервис для работы с заметками
+service NotesService {
+  // Создание новой заметки
+  rpc CreateNote(CreateNoteRequest) returns (NoteResponse);
+  
+  // Получение заметки по ID
+  rpc GetNote(GetNoteRequest) returns (NoteResponse);
+  
+  // Получение списка всех заметок
+  rpc ListNotes(ListNotesRequest) returns (ListNotesResponse);
+  
+  // Обновление заметки
+  rpc UpdateNote(UpdateNoteRequest) returns (NoteResponse);
+  
+  // Удаление заметки
+  rpc DeleteNote(DeleteNoteRequest) returns (DeleteNoteResponse);
+}
+
+// Запрос на создание заметки
+message CreateNoteRequest {
+  string title = 1;
+  string content = 2;
+  repeated string tags = 3;
+  bool is_public = 4;
+}
+
+// Запрос на получение заметки по ID
+message GetNoteRequest {
+  int64 id = 1;
+}
+
+// Запрос на обновление заметки
+message UpdateNoteRequest {
+  int64 id = 1;
+  string title = 2;
+  string content = 3;
+  repeated string tags = 4;
+  bool is_public = 5;
+}
+
+// Запрос на удаление заметки
+message DeleteNoteRequest {
+  int64 id = 1;
+}
+
+// Ответ при удалении заметки
+message DeleteNoteResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// Запрос списка заметок
+message ListNotesRequest {
+  // Можно добавить параметры пагинации
+  int32 page = 1;
+  int32 page_size = 2;
+}
+
+// Ответ со списком заметок
+message ListNotesResponse {
+  repeated NoteResponse notes = 1;
+  int32 total_count = 2;
+}
+
+// Структура заметки для ответа
+message NoteResponse {
+  int64 id = 1;
+  string title = 2;
+  string content = 3;
+  string created_at = 4;
+  string updated_at = 5;
+  repeated string tags = 6;
+  bool is_public = 7;
+  bool is_generated = 8;
+}
