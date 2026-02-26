@@ -80,6 +80,9 @@ func main() {
 	// Создание репозиториЯ, передача контекста и WaitGroup
 	repo := repository.NewRepository(ctx, &wg)
 
+	// Сервис заметок поверх репозитория
+	noteService := service.NewNoteService(repo)
+
 	// Создание и запуск gRPC сервера
 	go func() {
 		// Создание TCP listener
@@ -92,7 +95,7 @@ func main() {
 		s := grpc.NewServer()
 
 		// Регистрация сервиса заметок
-		notesServer := mygrpc.NewNotesServer(repo)
+		notesServer := mygrpc.NewNotesServer(noteService)
 		pb.RegisterNotesServiceServer(s, notesServer)
 
 		log.Println("Запуск gRPC сервера на :50051")
@@ -122,14 +125,14 @@ func main() {
 	authorized := r.Group("/")
 	authorized.Use(JWTMiddleware())
 	{
-		authorized.POST("/api/item", handlers.HandlePostItem(repo))
-		authorized.PUT("/api/item/:id", handlers.HandlePutItem(repo))
-		authorized.DELETE("/api/item/:id", handlers.HandleDeleteItem(repo))
+		authorized.POST("/api/item", handlers.HandlePostItem(noteService))
+		authorized.PUT("/api/item/:id", handlers.HandlePutItem(noteService))
+		authorized.DELETE("/api/item/:id", handlers.HandleDeleteItem(noteService))
 	}
 
 	// Public GET
-	r.GET("/api/item/:id", handlers.HandleGetItem(repo))
-	r.GET("/api/items", handlers.HandleGetItems(repo))
+	r.GET("/api/item/:id", handlers.HandleGetItem(noteService))
+	r.GET("/api/items", handlers.HandleGetItems(noteService))
 
 	// Swagger
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))

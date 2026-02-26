@@ -2,22 +2,27 @@ package grpc
 
 import (
 	"MainProject/internal/model"
-	"MainProject/internal/repository"
+	"MainProject/internal/service"
 	"context"
 	"log"
 	"time"
 
 	pb "MainProject/api/proto"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
+// NotesServer реализует gRPC‑интерфейс работы с заметками,
+// опираясь на доменный сервис NoteService.
 type NotesServer struct {
 	pb.UnimplementedNotesServiceServer
-	repo *repository.Repository
+	svc service.NoteService
 }
 
-func NewNotesServer(repo *repository.Repository) *NotesServer {
+// NewNotesServer создаёт новый gRPC‑сервер заметок поверх NoteService.
+func NewNotesServer(svc service.NoteService) *NotesServer {
 	return &NotesServer{
-		repo: repo,
+		svc: svc,
 	}
 }
 
@@ -25,15 +30,18 @@ func NewNotesServer(repo *repository.Repository) *NotesServer {
 func (s *NotesServer) CreateNote(ctx context.Context, req *pb.CreateNoteRequest) (*pb.NoteResponse, error) {
 	log.Printf("Получен запрос на создание заметки: %s", req.Title)
 
-	note := model.NewNote(req.Title, req.Content, req.Tags, req.IsPublic)
-	note.IsGenerated = false
-
-	id := s.repo.AddNote(note)
-	note.SetID(id)
-
-	// Сохраняем в CSV
-	if err := s.repo.SaveNoteToCSV(note); err != nil {
-		log.Printf("Ошибка при сохранении в CSV: %v", err)
+	note, err := s.svc.CreateNote(ctx, service.CreateNoteInput{
+		Title:    req.Title,
+		Content:  req.Content,
+		Tags:     req.Tags,
+		IsPublic: req.IsPublic,
+	})
+	if err != nil {
+		log.Printf("Ошибка при создании заметки: %v", err)
+		if err == service.ErrInvalidNote {
+			return nil, status.Errorf(codes.InvalidArgument, "invalid note: %v", err)
+		}
+		return nil, status.Errorf(codes.Internal, "failed to create note")
 	}
 
 	return convertNoteToResponse(note), nil
@@ -43,9 +51,13 @@ func (s *NotesServer) CreateNote(ctx context.Context, req *pb.CreateNoteRequest)
 func (s *NotesServer) GetNote(ctx context.Context, req *pb.GetNoteRequest) (*pb.NoteResponse, error) {
 	log.Printf("Получен запрос на получение заметки с ID: %d", req.Id)
 
-	note, found := s.repo.FindNoteById(req.Id)
-	if !found {
-		return nil, nil // В реальном проекте лучше вернуть ошибку
+	note, err := s.svc.GetNote(ctx, req.Id)
+	if err != nil {
+		if err == service.ErrNoteNotFound {
+			return nil, status.Errorf(codes.NotFound, "note %d not found", req.Id)
+		}
+		log.Printf("Ошибка при получении заметки: %v", err)
+		return nil, status.Errorf(codes.Internal, "failed to get note")
 	}
 
 	return convertNoteToResponse(note), nil
@@ -55,11 +67,15 @@ func (s *NotesServer) GetNote(ctx context.Context, req *pb.GetNoteRequest) (*pb.
 func (s *NotesServer) ListNotes(ctx context.Context, req *pb.ListNotesRequest) (*pb.ListNotesResponse, error) {
 	log.Println("Получен запрос на получение списка заметок")
 
-	entities := s.repo.GetNotes()
+	entities, err := s.svc.ListNotes(ctx)
+	if err != nil {
+		log.Printf("Ошибка при получении списка заметок: %v", err)
+		return nil, status.Errorf(codes.Internal, "failed to list notes")
+	}
+
 	var notes []*pb.NoteResponse
 
-	for _, entity := range entities {
-		note := entity.(*model.Note)
+	for _, note := range entities {
 		notes = append(notes, convertNoteToResponse(note))
 	}
 
@@ -73,37 +89,42 @@ func (s *NotesServer) ListNotes(ctx context.Context, req *pb.ListNotesRequest) (
 func (s *NotesServer) UpdateNote(ctx context.Context, req *pb.UpdateNoteRequest) (*pb.NoteResponse, error) {
 	log.Printf("Получен запрос на обновление заметки с ID: %d", req.Id)
 
-	// Создаем обновленную заметку
-	updated := model.NewNote(req.Title, req.Content, req.Tags, req.IsPublic)
-	updated.SetID(req.Id)
-	updated.IsGenerated = false
-
-	if s.repo.UpdateNote(req.Id, updated) {
-		return convertNoteToResponse(updated), nil
+	updated, err := s.svc.UpdateNote(ctx, req.Id, service.UpdateNoteInput{
+		Title:    req.Title,
+		Content:  req.Content,
+		Tags:     req.Tags,
+		IsPublic: req.IsPublic,
+	})
+	if err != nil {
+		if err == service.ErrNoteNotFound {
+			return nil, status.Errorf(codes.NotFound, "note %d not found", req.Id)
+		}
+		if err == service.ErrInvalidNote {
+			return nil, status.Errorf(codes.InvalidArgument, "invalid note: %v", err)
+		}
+		log.Printf("Ошибка при обновлении заметки: %v", err)
+		return nil, status.Errorf(codes.Internal, "failed to update note")
 	}
 
-	return nil, nil // Заметка не найдена
+	return convertNoteToResponse(updated), nil
 }
 
 // DeleteNote удаляет заметку
 func (s *NotesServer) DeleteNote(ctx context.Context, req *pb.DeleteNoteRequest) (*pb.DeleteNoteResponse, error) {
 	log.Printf("Получен запрос на удаление заметки с ID: %d", req.Id)
 
-	if s.repo.DeleteNote(req.Id) {
-		// Удаляем из CSV
-		if err := s.repo.DeleteNoteFromCSV(req.Id); err != nil {
-			log.Printf("Ошибка при удалении из CSV: %v", err)
-		}
+	err := s.svc.DeleteNote(ctx, req.Id)
+	if err == nil {
 		return &pb.DeleteNoteResponse{
 			Success: true,
 			Message: "Заметка успешно удалена",
 		}, nil
+	} else if err == service.ErrNoteNotFound {
+		return nil, status.Errorf(codes.NotFound, "note %d not found", req.Id)
 	}
 
-	return &pb.DeleteNoteResponse{
-		Success: false,
-		Message: "Заметка не найдена",
-	}, nil
+	log.Printf("Ошибка при удалении заметки: %v", err)
+	return nil, status.Errorf(codes.Internal, "failed to delete note")
 }
 
 // Вспомогательная функция для конвертации модели в protobuf ответ

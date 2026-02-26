@@ -2,7 +2,7 @@ package handlers
 
 import (
 	"MainProject/internal/model"
-	"MainProject/internal/repository"
+	"MainProject/internal/service"
 	"net/http"
 	"os"
 	"strconv"
@@ -94,7 +94,7 @@ func HandleLogin(c *gin.Context) {
 // @Failure 500 {object} ErrorResponse
 // @Security bearerAuth
 // @Router /api/item [post]
-func HandlePostItem(repo *repository.Repository) gin.HandlerFunc {
+func HandlePostItem(noteService service.NoteService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var note model.Note
 		if err := c.ShouldBindJSON(&note); err != nil {
@@ -102,28 +102,26 @@ func HandlePostItem(repo *repository.Repository) gin.HandlerFunc {
 			return
 		}
 
-		// Валидация обязательных полей
-		if note.Title == "" || note.Content == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Поля 'title' и 'content' обязательны"})
+		created, err := noteService.CreateNote(
+			c.Request.Context(),
+			service.CreateNoteInput{
+				Title:    note.Title,
+				Content:  note.Content,
+				Tags:     note.Tags,
+				IsPublic: note.IsPublic,
+			},
+		)
+		if err != nil {
+			switch err {
+			case service.ErrInvalidNote:
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Поля 'title' и 'content' обязательны"})
+			default:
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка при создании заметки"})
+			}
 			return
 		}
 
-		// Установка временных меток
-		note.CreatedAt = time.Now()
-		note.UpdatedAt = time.Now()
-		note.IsGenerated = false
-
-		// Добавление заметки в репозиторий
-		id := repo.AddNote(&note)
-		note.SetID(id)
-
-		// Сохранение в CSV файл
-		if err := repo.SaveNoteToCSV(&note); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка при сохранении в CSV"})
-			return
-		}
-
-		c.JSON(http.StatusCreated, note)
+		c.JSON(http.StatusCreated, created)
 	}
 }
 
@@ -139,7 +137,7 @@ func HandlePostItem(repo *repository.Repository) gin.HandlerFunc {
 // @Failure 401 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
 // @Router /api/item/{id} [get]
-func HandleGetItem(repo *repository.Repository) gin.HandlerFunc {
+func HandleGetItem(noteService service.NoteService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		idStr := c.Param("id")
 		id, err := strconv.ParseInt(idStr, 10, 64)
@@ -148,10 +146,13 @@ func HandleGetItem(repo *repository.Repository) gin.HandlerFunc {
 			return
 		}
 
-		// Поиск заметки по ID
-		note, found := repo.FindNoteById(id)
-		if !found {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Заметка не найдена"})
+		note, err := noteService.GetNote(c.Request.Context(), id)
+		if err != nil {
+			if err == service.ErrNoteNotFound {
+				c.JSON(http.StatusNotFound, gin.H{"error": "Заметка не найдена"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка при получении заметки"})
 			return
 		}
 
@@ -166,15 +167,15 @@ func HandleGetItem(repo *repository.Repository) gin.HandlerFunc {
 // @Produce json
 // @Success 200 {array} model.Note "Список заметок"
 // @Router /api/items [get]
-func HandleGetItems(repo *repository.Repository) gin.HandlerFunc {
+func HandleGetItems(noteService service.NoteService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		notes := repo.GetNotes()
-		result := make([]model.Note, len(notes))
-		for i, entity := range notes {
-			result[i] = *entity.(*model.Note)
+		notes, err := noteService.ListNotes(c.Request.Context())
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка при получении списка заметок"})
+			return
 		}
 
-		c.JSON(http.StatusOK, result)
+		c.JSON(http.StatusOK, notes)
 	}
 }
 
@@ -192,7 +193,7 @@ func HandleGetItems(repo *repository.Repository) gin.HandlerFunc {
 // @Failure 500 {object} ErrorResponse
 // @Security bearerAuth
 // @Router /api/item/{id} [put]
-func HandlePutItem(repo *repository.Repository) gin.HandlerFunc {
+func HandlePutItem(noteService service.NoteService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		idStr := c.Param("id")
 		id, err := strconv.ParseInt(idStr, 10, 64)
@@ -207,23 +208,29 @@ func HandlePutItem(repo *repository.Repository) gin.HandlerFunc {
 			return
 		}
 
-		// Валидация обязательных полей
-		if updated.Title == "" || updated.Content == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Поля 'title' и 'content' обязательны"})
+		note, err := noteService.UpdateNote(
+			c.Request.Context(),
+			id,
+			service.UpdateNoteInput{
+				Title:    updated.Title,
+				Content:  updated.Content,
+				Tags:     updated.Tags,
+				IsPublic: updated.IsPublic,
+			},
+		)
+		if err != nil {
+			switch err {
+			case service.ErrInvalidNote:
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Поля 'title' и 'content' обязательны"})
+			case service.ErrNoteNotFound:
+				c.JSON(http.StatusNotFound, gin.H{"error": "Заметка не найдена"})
+			default:
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка при обновлении заметки"})
+			}
 			return
 		}
 
-		// Установка ID и времени обновления
-		updated.SetID(id)
-		updated.UpdatedAt = time.Now()
-
-		// Обновление заметки в репозитории
-		if !repo.UpdateNote(id, &updated) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Заметка не найдена"})
-			return
-		}
-
-		c.JSON(http.StatusOK, updated)
+		c.JSON(http.StatusOK, note)
 	}
 }
 
@@ -238,7 +245,7 @@ func HandlePutItem(repo *repository.Repository) gin.HandlerFunc {
 // @Failure 500 {object} ErrorResponse
 // @Security bearerAuth
 // @Router /api/item/{id} [delete]
-func HandleDeleteItem(repo *repository.Repository) gin.HandlerFunc {
+func HandleDeleteItem(noteService service.NoteService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		idStr := c.Param("id")
 		id, err := strconv.ParseInt(idStr, 10, 64)
@@ -247,15 +254,13 @@ func HandleDeleteItem(repo *repository.Repository) gin.HandlerFunc {
 			return
 		}
 
-		// Удаление заметки из репозитория
-		if !repo.DeleteNote(id) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Заметка не найдена"})
-			return
-		}
-
-		// Удаление заметки из CSV файла
-		if err := repo.DeleteNoteFromCSV(id); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка при удалении из CSV"})
+		if err := noteService.DeleteNote(c.Request.Context(), id); err != nil {
+			switch err {
+			case service.ErrNoteNotFound:
+				c.JSON(http.StatusNotFound, gin.H{"error": "Заметка не найдена"})
+			default:
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка при удалении заметки"})
+			}
 			return
 		}
 
