@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -33,6 +34,11 @@ import (
 	"github.com/joho/godotenv"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
+
+	pb "MainProject/api/proto"
+	mygrpc "MainProject/internal/grpc"
+
+	"google.golang.org/grpc"
 )
 
 // LoadEnv загружает переменные из .env
@@ -73,6 +79,31 @@ func main() {
 
 	// Создание репозиториЯ, передача контекста и WaitGroup
 	repo := repository.NewRepository(ctx, &wg)
+
+	// Сервис заметок поверх репозитория
+	noteService := service.NewNoteService(repo)
+
+	// Создание и запуск gRPC сервера
+	go func() {
+		// Создание TCP listener
+		lis, err := net.Listen("tcp", ":50051")
+		if err != nil {
+			log.Fatalf("Ошибка при создании listener: %v", err)
+		}
+
+		// Создание gRPC сервера
+		s := grpc.NewServer()
+
+		// Регистрация сервиса заметок
+		notesServer := mygrpc.NewNotesServer(noteService)
+		pb.RegisterNotesServiceServer(s, notesServer)
+
+		log.Println("Запуск gRPC сервера на :50051")
+		if err := s.Serve(lis); err != nil {
+			log.Fatalf("Ошибка при запуске gRPC сервера: %v", err)
+		}
+	}()
+
 	// Создание сервиса Планировщик, передача ему репозитория и WaitGroup
 	scheduler := service.NewSchedulerService(repo, &wg)
 
@@ -94,14 +125,14 @@ func main() {
 	authorized := r.Group("/")
 	authorized.Use(JWTMiddleware())
 	{
-		authorized.POST("/api/item", handlers.HandlePostItem(repo))
-		authorized.PUT("/api/item/:id", handlers.HandlePutItem(repo))
-		authorized.DELETE("/api/item/:id", handlers.HandleDeleteItem(repo))
+		authorized.POST("/api/item", handlers.HandlePostItem(noteService))
+		authorized.PUT("/api/item/:id", handlers.HandlePutItem(noteService))
+		authorized.DELETE("/api/item/:id", handlers.HandleDeleteItem(noteService))
 	}
 
 	// Public GET
-	r.GET("/api/item/:id", handlers.HandleGetItem(repo))
-	r.GET("/api/items", handlers.HandleGetItems(repo))
+	r.GET("/api/item/:id", handlers.HandleGetItem(noteService))
+	r.GET("/api/items", handlers.HandleGetItems(noteService))
 
 	// Swagger
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
