@@ -10,12 +10,10 @@ import (
 
 // fakeNoteRepository — простая in-memory реализация NoteRepository
 // для unit‑тестов сервиса заметок.
-// Позволяет тестировать бизнес‑логику без реального хранилища и работы с файлами
+// Позволяет тестировать бизнес‑логику без реального хранилища
 type fakeNoteRepository struct {
-	notes            map[int64]*model.Note
-	nextID           int64
-	saveNoteErr      error
-	deleteNoteCSVErr error
+	notes  map[int64]*model.Note
+	nextID int64
 }
 
 // newFakeNoteRepository создаёт пустой фейковый репозиторий заметок
@@ -26,58 +24,47 @@ func newFakeNoteRepository() *fakeNoteRepository {
 	}
 }
 
-// AddNote эмулирует сохранение заметки с авто‑инкрементным ID
-func (r *fakeNoteRepository) AddNote(note *model.Note) int64 {
+// CreateNote эмулирует сохранение заметки с авто‑инкрементным ID
+func (r *fakeNoteRepository) CreateNote(ctx context.Context, note *model.Note) (int64, error) {
 	id := r.nextID
 	r.nextID++
 	note.SetID(id)
 	r.notes[id] = note
-	return id
+	return id, nil
 }
 
-// FindNoteById возвращает заметку по ID, если она существует
-func (r *fakeNoteRepository) FindNoteById(id int64) (*model.Note, bool) {
+// FindNoteByID возвращает заметку по ID, если она существует
+func (r *fakeNoteRepository) FindNoteByID(ctx context.Context, id int64) (*model.Note, bool, error) {
 	n, ok := r.notes[id]
-	return n, ok
+	return n, ok, nil
 }
 
 // UpdateNote заменяет сохранённую заметку новой версией
-func (r *fakeNoteRepository) UpdateNote(id int64, updated *model.Note) bool {
+func (r *fakeNoteRepository) UpdateNote(ctx context.Context, note *model.Note) (bool, error) {
+	id := note.ID().(int64)
 	if _, ok := r.notes[id]; !ok {
-		return false
+		return false, nil
 	}
-	r.notes[id] = updated
-	return true
+	r.notes[id] = note
+	return true, nil
 }
 
 // DeleteNote удаляет заметку из in-memory хранилища
-func (r *fakeNoteRepository) DeleteNote(id int64) bool {
+func (r *fakeNoteRepository) DeleteNote(ctx context.Context, id int64) (bool, error) {
 	if _, ok := r.notes[id]; !ok {
-		return false
+		return false, nil
 	}
 	delete(r.notes, id)
-	return true
+	return true, nil
 }
 
-// GetNotes возвращает все заметки как слайс Entity
-func (r *fakeNoteRepository) GetNotes() []model.Entity {
-	res := make([]model.Entity, 0, len(r.notes))
+// ListNotes возвращает все заметки
+func (r *fakeNoteRepository) ListNotes(ctx context.Context) ([]*model.Note, error) {
+	res := make([]*model.Note, 0, len(r.notes))
 	for _, n := range r.notes {
 		res = append(res, n)
 	}
-	return res
-}
-
-// SaveNoteToCSV эмулирует сохранение заметки в CSV и может
-// возвращать заранее настроенную ошибку
-func (r *fakeNoteRepository) SaveNoteToCSV(note *model.Note) error {
-	return r.saveNoteErr
-}
-
-// DeleteNoteFromCSV эмулирует удаление заметки из CSV и может
-// возвращать заранее настроенную ошибку
-func (r *fakeNoteRepository) DeleteNoteFromCSV(id int64) error {
-	return r.deleteNoteCSVErr
+	return res, nil
 }
 
 func TestNoteService_CreateNote(t *testing.T) {
@@ -88,9 +75,7 @@ func TestNoteService_CreateNote(t *testing.T) {
 	tests := []struct {
 		name       string
 		input      CreateNoteInput
-		setupRepo  func(*fakeNoteRepository)
 		wantErr    error
-		wantErrAny bool
 	}{
 		{
 			name: "ok - valid note",
@@ -119,18 +104,6 @@ func TestNoteService_CreateNote(t *testing.T) {
 			},
 			wantErr: ErrInvalidNote,
 		},
-		{
-			name: "error - repo SaveNoteToCSV failed",
-			input: CreateNoteInput{
-				Title:    "Title",
-				Content:  "Content",
-				IsPublic: true,
-			},
-			setupRepo: func(r *fakeNoteRepository) {
-				r.saveNoteErr = errors.New("csv error")
-			},
-			wantErrAny: true,
-		},
 	}
 
 	for _, tt := range tests {
@@ -139,9 +112,6 @@ func TestNoteService_CreateNote(t *testing.T) {
 			t.Parallel()
 
 			repo := newFakeNoteRepository()
-			if tt.setupRepo != nil {
-				tt.setupRepo(repo)
-			}
 			svc := NewNoteService(repo)
 
 			note, err := svc.CreateNote(ctx, tt.input)
@@ -149,12 +119,6 @@ func TestNoteService_CreateNote(t *testing.T) {
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) {
 					t.Fatalf("expected error %v, got %v", tt.wantErr, err)
-				}
-				return
-			}
-			if tt.wantErrAny {
-				if err == nil {
-					t.Fatalf("expected non-nil error, got nil")
 				}
 				return
 			}
@@ -368,9 +332,7 @@ func TestNoteService_DeleteNote(t *testing.T) {
 		name          string
 		setup         func(*fakeNoteRepository) int64
 		idOffset      int64
-		deleteCSVEerr error
 		wantErr       error
-		wantErrAny    bool
 	}{
 		{
 			name: "ok - delete existing",
@@ -390,19 +352,6 @@ func TestNoteService_DeleteNote(t *testing.T) {
 			},
 			wantErr: ErrNoteNotFound,
 		},
-		{
-			name: "error - csv delete failed",
-			setup: func(r *fakeNoteRepository) int64 {
-				svc := NewNoteService(r)
-				n, _ := svc.CreateNote(context.Background(), CreateNoteInput{
-					Title:   "t",
-					Content: "c",
-				})
-				return n.ID().(int64)
-			},
-			deleteCSVEerr: errors.New("csv delete error"),
-			wantErrAny:    true,
-		},
 	}
 
 	for _, tt := range tests {
@@ -411,9 +360,6 @@ func TestNoteService_DeleteNote(t *testing.T) {
 			t.Parallel()
 
 			repo := newFakeNoteRepository()
-			if tt.deleteCSVEerr != nil {
-				repo.deleteNoteCSVErr = tt.deleteCSVEerr
-			}
 			id := tt.setup(repo)
 			svc := NewNoteService(repo)
 
@@ -422,12 +368,6 @@ func TestNoteService_DeleteNote(t *testing.T) {
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) {
 					t.Fatalf("expected error %v, got %v", tt.wantErr, err)
-				}
-				return
-			}
-			if tt.wantErrAny {
-				if err == nil {
-					t.Fatalf("expected non-nil error, got nil")
 				}
 				return
 			}
