@@ -10,13 +10,17 @@ import (
 // NoteRepository описывает только ту часть репозитория,
 // которая нужна бизнес-логике заметок
 type NoteRepository interface {
-	AddNote(note *model.Note) int64
-	FindNoteById(id int64) (*model.Note, bool)
-	UpdateNote(id int64, updated *model.Note) bool
-	DeleteNote(id int64) bool
-	GetNotes() []model.Entity
-	SaveNoteToCSV(note *model.Note) error
-	DeleteNoteFromCSV(id int64) error
+	// CreateNote сохраняет заметку и возвращает сгенерированный ID
+	// Реализация может использовать авто-инкремент (счётчики) или другой механизм
+	CreateNote(ctx context.Context, note *model.Note) (int64, error)
+	// FindNoteByID возвращает заметку и флаг found.
+	FindNoteByID(ctx context.Context, id int64) (*model.Note, bool, error)
+	// UpdateNote заменяет заметку целиком (по note.ID())
+	UpdateNote(ctx context.Context, note *model.Note) (bool, error)
+	// DeleteNote удаляет заметку по ID
+	DeleteNote(ctx context.Context, id int64) (bool, error)
+	// ListNotes возвращает все заметки
+	ListNotes(ctx context.Context) ([]*model.Note, error)
 }
 
 // Ошибки доменного уровня для заметок
@@ -70,7 +74,7 @@ func validateNoteFields(title, content string) error {
 }
 
 // CreateNote создаёт новую заметку, устанавливает временные метки,
-// генерирует ID через репозиторий и сохраняет в CSV
+// генерирует ID через репозиторий и сохраняет в хранилище (MongoDB и т.п.)
 func (s *noteServiceImpl) CreateNote(ctx context.Context, input CreateNoteInput) (*model.Note, error) {
 	if err := validateNoteFields(input.Title, input.Content); err != nil {
 		return nil, err
@@ -85,19 +89,21 @@ func (s *noteServiceImpl) CreateNote(ctx context.Context, input CreateNoteInput)
 	note.CreatedAt = now
 	note.UpdatedAt = now
 
-	id := s.repo.AddNote(note)
-	note.SetID(id)
-
-	if err := s.repo.SaveNoteToCSV(note); err != nil {
+	id, err := s.repo.CreateNote(ctx, note)
+	if err != nil {
 		return nil, err
 	}
+	note.SetID(id)
 
 	return note, nil
 }
 
 // GetNote возвращает заметку по ID
 func (s *noteServiceImpl) GetNote(ctx context.Context, id int64) (*model.Note, error) {
-	note, found := s.repo.FindNoteById(id)
+	note, found, err := s.repo.FindNoteByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
 	if !found {
 		return nil, ErrNoteNotFound
 	}
@@ -106,14 +112,7 @@ func (s *noteServiceImpl) GetNote(ctx context.Context, id int64) (*model.Note, e
 
 // ListNotes возвращает все заметки в виде слайса доменных моделей
 func (s *noteServiceImpl) ListNotes(ctx context.Context) ([]*model.Note, error) {
-	entities := s.repo.GetNotes()
-	result := make([]*model.Note, 0, len(entities))
-	for _, e := range entities {
-		if note, ok := e.(*model.Note); ok {
-			result = append(result, note)
-		}
-	}
-	return result, nil
+	return s.repo.ListNotes(ctx)
 }
 
 // UpdateNote обновляет заметку по ID
@@ -123,7 +122,10 @@ func (s *noteServiceImpl) UpdateNote(ctx context.Context, id int64, input Update
 	}
 
 	// Проверим, что заметка существует
-	existing, found := s.repo.FindNoteById(id)
+	existing, found, err := s.repo.FindNoteByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
 	if !found {
 		return nil, ErrNoteNotFound
 	}
@@ -135,21 +137,25 @@ func (s *noteServiceImpl) UpdateNote(ctx context.Context, id int64, input Update
 	existing.SetPublic(input.IsPublic)
 	existing.UpdatedAt = time.Now()
 
-	if !s.repo.UpdateNote(id, existing) {
+	ok, err := s.repo.UpdateNote(ctx, existing)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
 		return nil, ErrNoteNotFound
 	}
 
 	return existing, nil
 }
 
-// DeleteNote удаляет заметку и связанную с ней запись в CSV
+// DeleteNote удаляет заметку.
 func (s *noteServiceImpl) DeleteNote(ctx context.Context, id int64) error {
-	if !s.repo.DeleteNote(id) {
-		return ErrNoteNotFound
-	}
-
-	if err := s.repo.DeleteNoteFromCSV(id); err != nil {
+	ok, err := s.repo.DeleteNote(ctx, id)
+	if err != nil {
 		return err
+	}
+	if !ok {
+		return ErrNoteNotFound
 	}
 
 	return nil

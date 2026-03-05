@@ -79,6 +79,9 @@ func main() {
 
 	// Создание репозиториЯ, передача контекста и WaitGroup
 	repo := repository.NewRepository(ctx, &wg)
+	if repo == nil {
+		log.Fatalf("Не удалось инициализировать хранилище (MongoDB/Redis). Проверьте переменные окружения и доступность контейнеров.")
+	}
 
 	// Сервис заметок поверх репозитория
 	noteService := service.NewNoteService(repo)
@@ -165,7 +168,6 @@ func main() {
 
 	// Cохранение всех данных перед выходом
 	log.Println("Сохранение данных перед завершением...")
-	repo.Flush()
 
 	// Ожидание завершения всех горутин (до 10 сек)
 	done := make(chan struct{})
@@ -190,6 +192,9 @@ func main() {
 	if err := httpServer.Shutdown(ctx); err != nil {
 		log.Printf("Ошибка при завершении сервера: %v", err)
 	}
+
+	// После остановки воркеров/сервера можно закрывать соединения к БД и Redis.
+	repo.Close(ctx)
 
 }
 
