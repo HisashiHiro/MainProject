@@ -1,12 +1,22 @@
 services:
-  mongo:
-    image: mongo:7
-    container_name: notesapp-mongo
-    restart: unless-stopped
+  postgres:
+    image: postgres:15-alpine
+    container_name: notes_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-notes_app}
     ports:
-      - "27017:27017"
+      - "5432:5432"
     volumes:
-      - mongo_data:/data/db
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - notes_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7-alpine
@@ -15,10 +25,51 @@ services:
     ports:
       - "6379:6379"
     command: ["redis-server", "--appendonly", "yes"]
+    networks:
+      - notes_network
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 volumes:
-  mongo_data:
+  postgres_data:
   redis_data:
 
+networks:
+  notes_network:
+    driver: bridge
+
+# ========================================
+# КОМАНДЫ ДЛЯ ЗАПУСКА И УПРАВЛЕНИЯ
+# ========================================
+#
+# Запуск всех контейнеров:
+#   docker compose up -d
+#
+# Остановка:
+#   docker compose down
+#
+# Статус:
+#   docker compose ps
+#
+# Удаление с данными:
+#   docker compose down -v
+#
+# ========================================
+# ПОДКЛЮЧЕНИЕ К БАЗАМ ДАННЫХ
+# ========================================
+#
+# PostgreSQL:
+#   docker exec -it pg-dev psql -U postgres -d mydb
+#
+# Redis:
+#   docker exec -it redis-dev redis-cli
+#
+# MongoDB:
+#   docker exec -it mongo-dev mongosh
+#
+# ========================================

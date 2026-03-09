@@ -8,6 +8,7 @@ import (
 	"time"
 
 	pb "MainProject/api/proto"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -130,7 +131,7 @@ func (s *NotesServer) DeleteNote(ctx context.Context, req *pb.DeleteNoteRequest)
 // Вспомогательная функция для конвертации модели в protobuf ответ
 func convertNoteToResponse(note *model.Note) *pb.NoteResponse {
 	return &pb.NoteResponse{
-		Id:          note.ID().(int64),
+		Id:          note.ID,
 		Title:       note.Title,
 		Content:     note.Content,
 		CreatedAt:   note.CreatedAt.Format(time.RFC3339),

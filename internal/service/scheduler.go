@@ -43,19 +43,17 @@ func (s *SchedulerService) Run(ctx context.Context, interval time.Duration) {
 			// Генерация новой заметки
 			note := model.NewNote("Пример", "Содержимое", []string{"тест"}, true)
 
-			// Генерация нового пользователя
-			user := model.NewUser("test", "test@example.com", []byte("hash"))
+			// Генерация нового пользователя с уникальным именем
+			username := fmt.Sprintf("test-%d", time.Now().UnixNano())
+			email := fmt.Sprintf("%s@example.com", username)
+			user := model.NewUser(username, email, []byte("hash"))
 
-			// Генерация новой сессии
-			// ID должен быть уникальным, т.к. в MongoDB он становится ключом документа.
-			sessionID := fmt.Sprintf("session-%d", time.Now().UnixNano())
-			session := model.NewSession(sessionID, 2, time.Now().Add(time.Hour), "127.0.0.1", "Chrome")
-
-			// Генерация нового тега
-			tag := model.NewTag("важное")
+			// Генерация нового тега с уникальным именем
+			tagName := fmt.Sprintf("важное-%d", time.Now().UnixNano())
+			tag := model.NewTag(tagName)
 
 			// Упаковка всех сущностей в один срез
-			entities := []model.Entity{note, user, session, tag}
+			entities := []model.Entity{note, user, tag}
 
 			// Отправка среза сущностей в канал репозитория
 			// Репозиторий самостоятельно обработает и распределит их по соответствующим слайсам

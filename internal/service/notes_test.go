@@ -13,6 +13,7 @@ import (
 // Позволяет тестировать бизнес‑логику без реального хранилища
 type fakeNoteRepository struct {
 	notes  map[int64]*model.Note
+	tags   map[int64][]string
 	nextID int64
 }
 
@@ -20,6 +21,7 @@ type fakeNoteRepository struct {
 func newFakeNoteRepository() *fakeNoteRepository {
 	return &fakeNoteRepository{
 		notes:  make(map[int64]*model.Note),
+		tags:   make(map[int64][]string),
 		nextID: 1,
 	}
 }
@@ -28,24 +30,65 @@ func newFakeNoteRepository() *fakeNoteRepository {
 func (r *fakeNoteRepository) CreateNote(ctx context.Context, note *model.Note) (int64, error) {
 	id := r.nextID
 	r.nextID++
-	note.SetID(id)
-	r.notes[id] = note
+	note.ID = id
+	// Сохраняем копию, чтобы избежать внешних изменений
+	noteCopy := *note
+	r.notes[id] = &noteCopy
+	// Если есть теги, сохраняем их отдельно (имитируем связи)
+	if len(note.Tags) > 0 {
+		tagsCopy := make([]string, len(note.Tags))
+		copy(tagsCopy, note.Tags)
+		r.tags[id] = tagsCopy
+	}
+	return id, nil
+}
+
+func (r *fakeNoteRepository) CreateNoteWithTags(ctx context.Context, note *model.Note, tags []string) (int64, error) {
+	id := r.nextID
+	r.nextID++
+	note.ID = id
+	// Сохраняем заметку
+	noteCopy := *note
+	noteCopy.Tags = tags // устанавливаем теги в копии
+	r.notes[id] = &noteCopy
+	// Сохраняем теги отдельно
+	if len(tags) > 0 {
+		tagsCopy := make([]string, len(tags))
+		copy(tagsCopy, tags)
+		r.tags[id] = tagsCopy
+	}
 	return id, nil
 }
 
 // FindNoteByID возвращает заметку по ID, если она существует
 func (r *fakeNoteRepository) FindNoteByID(ctx context.Context, id int64) (*model.Note, bool, error) {
 	n, ok := r.notes[id]
-	return n, ok, nil
+	if !ok {
+		return nil, false, nil
+	}
+	// Создаём копию, чтобы не изменять оригинал в хранилище
+	noteCopy := *n
+	noteCopy.Tags = r.tags[id]
+	return &noteCopy, true, nil
 }
 
 // UpdateNote заменяет сохранённую заметку новой версией
 func (r *fakeNoteRepository) UpdateNote(ctx context.Context, note *model.Note) (bool, error) {
-	id := note.ID().(int64)
+	id := note.ID
 	if _, ok := r.notes[id]; !ok {
 		return false, nil
 	}
-	r.notes[id] = note
+	// Обновляем заметку
+	noteCopy := *note
+	r.notes[id] = &noteCopy
+	// Обновляем теги
+	if len(note.Tags) > 0 {
+		tagsCopy := make([]string, len(note.Tags))
+		copy(tagsCopy, note.Tags)
+		r.tags[id] = tagsCopy
+	} else {
+		delete(r.tags, id)
+	}
 	return true, nil
 }
 
@@ -55,14 +98,17 @@ func (r *fakeNoteRepository) DeleteNote(ctx context.Context, id int64) (bool, er
 		return false, nil
 	}
 	delete(r.notes, id)
+	delete(r.tags, id)
 	return true, nil
 }
 
 // ListNotes возвращает все заметки
 func (r *fakeNoteRepository) ListNotes(ctx context.Context) ([]*model.Note, error) {
 	res := make([]*model.Note, 0, len(r.notes))
-	for _, n := range r.notes {
-		res = append(res, n)
+	for id, n := range r.notes {
+		noteCopy := *n
+		noteCopy.Tags = r.tags[id]
+		res = append(res, &noteCopy)
 	}
 	return res, nil
 }
@@ -73,12 +119,20 @@ func TestNoteService_CreateNote(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name       string
-		input      CreateNoteInput
-		wantErr    error
+		name    string
+		input   CreateNoteInput
+		wantErr error
 	}{
 		{
-			name: "ok - valid note",
+			name: "ok - valid note without tags",
+			input: CreateNoteInput{
+				Title:    "Title",
+				Content:  "Content",
+				IsPublic: true,
+			},
+		},
+		{
+			name: "ok - valid note with tags",
 			input: CreateNoteInput{
 				Title:    "Title",
 				Content:  "Content",
@@ -132,16 +186,24 @@ func TestNoteService_CreateNote(t *testing.T) {
 			if note.Title != tt.input.Title || note.Content != tt.input.Content {
 				t.Errorf("note fields mismatch")
 			}
-			if note.ID() == nil {
+			if note.ID == 0 {
 				t.Errorf("expected ID to be set")
 			}
 			if note.CreatedAt.IsZero() || note.UpdatedAt.IsZero() {
 				t.Errorf("expected timestamps to be set")
 			}
+			// Проверяем теги
+			if len(note.Tags) != len(tt.input.Tags) {
+				t.Errorf("tags count mismatch: expected %d, got %d", len(tt.input.Tags), len(note.Tags))
+			}
+			for i, tag := range tt.input.Tags {
+				if note.Tags[i] != tag {
+					t.Errorf("tag mismatch at %d: expected %s, got %s", i, tag, note.Tags[i])
+				}
+			}
 		})
 	}
 }
-
 func TestNoteService_GetNote(t *testing.T) {
 	t.Parallel()
 
@@ -153,6 +215,7 @@ func TestNoteService_GetNote(t *testing.T) {
 	created, err := svc.CreateNote(ctx, CreateNoteInput{
 		Title:   "Existing",
 		Content: "Content",
+		Tags:    []string{"tagA", "tagB"},
 	})
 	if err != nil {
 		t.Fatalf("setup CreateNote error: %v", err)
@@ -165,7 +228,7 @@ func TestNoteService_GetNote(t *testing.T) {
 	}{
 		{
 			name: "ok - found",
-			id:   created.ID().(int64),
+			id:   created.ID,
 		},
 		{
 			name:    "error - not found",
@@ -193,8 +256,12 @@ func TestNoteService_GetNote(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if note == nil || note.ID() != created.ID() {
+			if note == nil || note.ID != created.ID {
 				t.Fatalf("unexpected note returned")
+			}
+			// Проверяем теги
+			if len(note.Tags) != 2 || note.Tags[0] != "tagA" || note.Tags[1] != "tagB" {
+				t.Errorf("tags not restored correctly: %v", note.Tags)
 			}
 		})
 	}
@@ -216,9 +283,9 @@ func TestNoteService_ListNotes(t *testing.T) {
 		t.Fatalf("expected 0 notes, got %d", len(notes))
 	}
 
-	// Добавим две заметки
-	_, _ = svc.CreateNote(ctx, CreateNoteInput{Title: "n1", Content: "c1"})
-	_, _ = svc.CreateNote(ctx, CreateNoteInput{Title: "n2", Content: "c2"})
+	// Добавим две заметки с тегами
+	_, _ = svc.CreateNote(ctx, CreateNoteInput{Title: "n1", Content: "c1", Tags: []string{"work"}})
+	_, _ = svc.CreateNote(ctx, CreateNoteInput{Title: "n2", Content: "c2", Tags: []string{"personal", "urgent"}})
 
 	notes, err = svc.ListNotes(ctx)
 	if err != nil {
@@ -226,6 +293,15 @@ func TestNoteService_ListNotes(t *testing.T) {
 	}
 	if len(notes) != 2 {
 		t.Fatalf("expected 2 notes, got %d", len(notes))
+	}
+	// Проверим, что теги загружены
+	for _, n := range notes {
+		if n.Title == "n1" && (len(n.Tags) != 1 || n.Tags[0] != "work") {
+			t.Errorf("note n1 tags incorrect: %v", n.Tags)
+		}
+		if n.Title == "n2" && (len(n.Tags) != 2 || n.Tags[0] != "personal" || n.Tags[1] != "urgent") {
+			t.Errorf("note n2 tags incorrect: %v", n.Tags)
+		}
 	}
 }
 
@@ -235,22 +311,21 @@ func TestNoteService_UpdateNote(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name       string
-		setup      func(*fakeNoteRepository) int64
-		idOffset   int64
-		input      UpdateNoteInput
-		wantErr    error
-		wantErrAny bool
+		name     string
+		setup    func(*fakeNoteRepository) int64
+		idOffset int64
+		input    UpdateNoteInput
+		wantErr  error
 	}{
 		{
-			name: "ok - update existing",
+			name: "ok - update existing without tags",
 			setup: func(r *fakeNoteRepository) int64 {
 				svc := NewNoteService(r)
-				n, _ := svc.CreateNote(context.Background(), CreateNoteInput{
+				n, _ := svc.CreateNote(ctx, CreateNoteInput{
 					Title:   "old",
 					Content: "old content",
 				})
-				return n.ID().(int64)
+				return n.ID
 			},
 			input: UpdateNoteInput{
 				Title:   "new",
@@ -258,14 +333,31 @@ func TestNoteService_UpdateNote(t *testing.T) {
 			},
 		},
 		{
+			name: "ok - update existing with tags",
+			setup: func(r *fakeNoteRepository) int64 {
+				svc := NewNoteService(r)
+				n, _ := svc.CreateNote(ctx, CreateNoteInput{
+					Title:   "old",
+					Content: "old content",
+					Tags:    []string{"oldtag"},
+				})
+				return n.ID
+			},
+			input: UpdateNoteInput{
+				Title:   "new",
+				Content: "new content",
+				Tags:    []string{"newtag1", "newtag2"},
+			},
+		},
+		{
 			name: "error - invalid fields",
 			setup: func(r *fakeNoteRepository) int64 {
 				svc := NewNoteService(r)
-				n, _ := svc.CreateNote(context.Background(), CreateNoteInput{
+				n, _ := svc.CreateNote(ctx, CreateNoteInput{
 					Title:   "old",
 					Content: "old content",
 				})
-				return n.ID().(int64)
+				return n.ID
 			},
 			input: UpdateNoteInput{
 				Title:   "",
@@ -319,6 +411,15 @@ func TestNoteService_UpdateNote(t *testing.T) {
 			if note.Title != tt.input.Title || note.Content != tt.input.Content {
 				t.Errorf("note fields were not updated")
 			}
+			// Проверяем теги
+			if len(note.Tags) != len(tt.input.Tags) {
+				t.Errorf("tags count mismatch: expected %d, got %d", len(tt.input.Tags), len(note.Tags))
+			}
+			for i, tag := range tt.input.Tags {
+				if note.Tags[i] != tag {
+					t.Errorf("tag mismatch at %d: expected %s, got %s", i, tag, note.Tags[i])
+				}
+			}
 		})
 	}
 }
@@ -329,20 +430,20 @@ func TestNoteService_DeleteNote(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name          string
-		setup         func(*fakeNoteRepository) int64
-		idOffset      int64
-		wantErr       error
+		name     string
+		setup    func(*fakeNoteRepository) int64
+		idOffset int64
+		wantErr  error
 	}{
 		{
 			name: "ok - delete existing",
 			setup: func(r *fakeNoteRepository) int64 {
 				svc := NewNoteService(r)
-				n, _ := svc.CreateNote(context.Background(), CreateNoteInput{
+				n, _ := svc.CreateNote(ctx, CreateNoteInput{
 					Title:   "t",
 					Content: "c",
 				})
-				return n.ID().(int64)
+				return n.ID
 			},
 		},
 		{
@@ -374,6 +475,11 @@ func TestNoteService_DeleteNote(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
+			// Проверяем, что заметка действительно удалена
+			_, found, _ := repo.FindNoteByID(ctx, id)
+			if found {
+				t.Errorf("note still exists after delete")
+			}
 		})
 	}
 }
@@ -397,7 +503,7 @@ func TestNoteService_UpdateNote_UpdatesTimestamp(t *testing.T) {
 	oldUpdatedAt := n.UpdatedAt
 	time.Sleep(10 * time.Millisecond)
 
-	updated, err := svc.UpdateNote(ctx, n.ID().(int64), UpdateNoteInput{
+	updated, err := svc.UpdateNote(ctx, n.ID, UpdateNoteInput{
 		Title:   "t2",
 		Content: "c2",
 	})
