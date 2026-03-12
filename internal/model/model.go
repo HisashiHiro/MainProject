@@ -1,27 +1,26 @@
 package model
 
 import (
-	"encoding/json"
-	"fmt"
 	"time"
 )
 
 // Entity — общий интерфейс для всех сущностей приложения
 type Entity interface {
-	ID() interface{}    // Универсальный метод для получения ID любого типа
 	EntityType() string // Возвращает тип сущности: "note", "user", "tag", "session"
 }
 
 // Note — модель заметки
 type Note struct {
-	id          int64     // Уникальный идентификатор заметки
-	Title       string    `json:"title"`       // Заголовок заметки
-	Content     string    `json:"content"`     // Основное содержимое
-	CreatedAt   time.Time `json:"created_at"`  // Дата/Время создания
-	UpdatedAt   time.Time `json:"updated_at"`  // Дата/Время обновления
-	Tags        []string  `json:"tags"`        // Список тегов
-	IsPublic    bool      `json:"is_public"`   // Флаг публичности заметки (Нет/Да)
-	IsGenerated bool      `json:"isGenerated"` // Флаг: создана ли сущность сервисом
+	ID          int64     `db:"id" json:"id"`                     // Уникальный идентификатор заметки
+	Title       string    `db:"title" json:"title"`               // Заголовок заметки
+	Content     string    `db:"content" json:"content"`           // Основное содержимое
+	CreatedAt   time.Time `db:"created_at" json:"created_at"`     // Дата/Время создания
+	UpdatedAt   time.Time `db:"updated_at" json:"updated_at"`     // Дата/Время обновления
+	Tags        []string  `db:"-" json:"tags"`                    // Список тегов
+	IsPublic    bool      `db:"is_public" json:"is_public"`       // Флаг публичности заметки (Нет/Да)
+	IsGenerated bool      `db:"is_generated" json:"is_generated"` // Флаг: создана ли сущность сервисом
+	Priority    int       `db:"priority" json:"priority"`         // Приоритет заметки
+	Category    string    `db:"category" json:"category"`         // Категория
 }
 
 // NewNote() создаёт новую заметку с заданными параметрами
@@ -35,39 +34,9 @@ func NewNote(title, content string, tags []string, isPublic bool) *Note {
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 		IsGenerated: true, // Создана сервисом
+		Priority:    0,    // по умолчанию
+		Category:    "",   // по умолчанию пусто
 	}
-}
-
-// Возвращает идентификатор заметки
-func (n *Note) ID() interface{} {
-	return n.id
-}
-
-// Реализация интерфейс json.Marshaler
-func (n *Note) MarshalJSON() ([]byte, error) {
-	var idField interface{}
-	switch v := n.ID().(type) {
-	case int64:
-		idField = v
-	case string:
-		idField = v
-	default:
-		return nil, fmt.Errorf("неподдерживаемый тип ID: %T", v)
-	}
-
-	type Alias Note
-	return json.Marshal(&struct {
-		ID interface{} `json:"id"`
-		*Alias
-	}{
-		ID:    idField,
-		Alias: (*Alias)(n),
-	})
-}
-
-// Устанавливает идентификатор заметки (например, после сохранения в БД)
-func (n *Note) SetID(id int64) {
-	n.id = id
 }
 
 // Обновляет заголовок
@@ -94,6 +63,18 @@ func (n *Note) SetPublic(isPublic bool) {
 	n.UpdatedAt = time.Now()
 }
 
+// Устанавливает приоритет и обновляет время
+func (n *Note) SetPriority(priority int) {
+	n.Priority = priority
+	n.UpdatedAt = time.Now()
+}
+
+// Устанавливает категорию и обновляет время
+func (n *Note) SetCategory(category string) {
+	n.Category = category
+	n.UpdatedAt = time.Now()
+}
+
 // Возвращает тип сущности для интерфейса Entity
 func (n *Note) EntityType() string {
 	return "note"
@@ -102,14 +83,15 @@ func (n *Note) EntityType() string {
 // ---------------------------------------------------------------
 // User — модель пользователя
 type User struct {
-	id           int64     // Уникальный идентификатор пользователя
-	Username     string    `json:"username"`      // Логин пользователя
-	Email        string    `json:"email"`         // Email пользователя
-	PasswordHash []byte    `json:"password_hash"` // Хеш пароля
-	CreatedAt    time.Time `json:"created_at"`    // Дата регистрации
-	LastLogin    time.Time `json:"last_login"`    // Дата последнего входа
-	IsActive     bool      `json:"is_active"`     // Статус активности аккаунта
-	IsGenerated  bool      `json:"isGenerated"`   // Флаг: создана ли сущность сервисом
+	ID           int64     `db:"id" json:"id"`                       // Уникальный идентификатор пользователя
+	Username     string    `db:"username" json:"username"`           // Логин пользователя
+	Email        string    `db:"email" json:"email"`                 // Email пользователя
+	PasswordHash []byte    `db:"password_hash" json:"password_hash"` // Хеш пароля
+	CreatedAt    time.Time `db:"created_at" json:"created_at"`       // Дата регистрации
+	LastLogin    time.Time `db:"last_login" json:"last_login"`       // Дата последнего входа
+	IsActive     bool      `db:"is_active" json:"is_active"`         // Статус активности аккаунта
+	IsGenerated  bool      `db:"is_generated" json:"is_generated"`   // Флаг: создана ли сущность сервисом
+	Role         string    `db:"role" json:"role"`                   // Роль пользователя
 }
 
 // NewUser() создаёт нового пользователя с заданными параметрами
@@ -122,39 +104,8 @@ func NewUser(username, email string, passwordHash []byte) *User {
 		CreatedAt:    time.Now(),
 		IsActive:     true,
 		IsGenerated:  true, // Создана сервисом
+		Role:         "user",
 	}
-}
-
-// Возвращает идентификатор пользователя
-func (u *User) ID() interface{} {
-	return u.id
-}
-
-// Реализация интерфейс json.Marshaler
-func (n *User) MarshalJSON() ([]byte, error) {
-	var idField interface{}
-	switch v := n.ID().(type) {
-	case int64:
-		idField = v
-	case string:
-		idField = v
-	default:
-		return nil, fmt.Errorf("неподдерживаемый тип ID: %T", v)
-	}
-
-	type Alias User
-	return json.Marshal(&struct {
-		ID interface{} `json:"id"`
-		*Alias
-	}{
-		ID:    idField,
-		Alias: (*Alias)(n),
-	})
-}
-
-// Устанавливает идентификатор пользователя
-func (u *User) SetID(id int64) {
-	u.id = id
 }
 
 // Обновляет хеш пароля
@@ -172,6 +123,11 @@ func (u *User) SetActive(active bool) {
 	u.IsActive = active
 }
 
+// Устанавливает роль пользователя
+func (u *User) SetRole(role string) {
+	u.Role = role
+}
+
 // Возвращает тип сущности для интерфейса Entity
 func (n *User) EntityType() string {
 	return "user"
@@ -179,52 +135,47 @@ func (n *User) EntityType() string {
 
 // Session — модель сессии пользователя
 type Session struct {
-	id          string    // Уникальный идентификатор сессии (UUID)
-	UserID      int64     `json:"user_id"`     // ID пользователя сессии
-	ExpiresAt   time.Time `json:"expires_at"`  // Время истечения сессии
-	IP          string    `json:"ip"`          // IP-адрес пользователя
-	Browser     string    `json:"browser"`     // Информация о браузере
-	IsGenerated bool      `json:"isGenerated"` // Флаг: создана ли сущность сервисом
+	ID          string    `db:"id" json:"id"`                     // Уникальный идентификатор сессии (UUID)
+	UserID      int64     `db:"user_id" json:"user_id"`           // ID пользователя сессии
+	ExpiresAt   time.Time `db:"expires_at" json:"expires_at"`     // Время истечения сессии
+	IP          string    `db:"ip" json:"ip"`                     // IP-адрес пользователя
+	Browser     string    `db:"browser" json:"browser"`           // Информация о браузере
+	IsGenerated bool      `db:"is_generated" json:"is_generated"` // Флаг: создана ли сущность сервисом
+	DeviceType  string    `db:"device_type" json:"device_type"`   // Тип устройства
 }
 
 // ---------------------------------------------------------------
 // NewSession создаёт новую сессию с заданными параметрами
 func NewSession(id string, userID int64, expiresAt time.Time, ip, browser string) *Session {
 	return &Session{
-		id:          id,
+		ID:          id,
 		UserID:      userID,
 		ExpiresAt:   expiresAt,
 		IP:          ip,
 		Browser:     browser,
 		IsGenerated: true, // Создана сервисом
+		DeviceType:  "unknown",
 	}
 }
 
-// Возвращает идентификатор сессии
-func (s *Session) ID() interface{} {
-	return s.id
+// Устанавливает время истечения
+func (s *Session) SetExpiresAt(t time.Time) {
+	s.ExpiresAt = t
 }
 
-// Реализация интерфейс json.Marshaler
-func (n *Session) MarshalJSON() ([]byte, error) {
-	var idField interface{}
-	switch v := n.ID().(type) {
-	case int64:
-		idField = v
-	case string:
-		idField = v
-	default:
-		return nil, fmt.Errorf("неподдерживаемый тип ID: %T", v)
-	}
+// Устанавливает IP-адрес
+func (s *Session) SetIP(ip string) {
+	s.IP = ip
+}
 
-	type Alias Session
-	return json.Marshal(&struct {
-		ID interface{} `json:"id"`
-		*Alias
-	}{
-		ID:    idField,
-		Alias: (*Alias)(n),
-	})
+// Устанавливает информацию о браузере
+func (s *Session) SetBrowser(browser string) {
+	s.Browser = browser
+}
+
+// Устанавливает тип устройства
+func (s *Session) SetDeviceType(deviceType string) {
+	s.DeviceType = deviceType
 }
 
 // Возвращает тип сущности для интерфейса Entity
@@ -236,9 +187,10 @@ func (s *Session) EntityType() string {
 // Tag — модель тега. Приватные поля
 // Для поиска заметки по тегу, например: "личные", "рабоота", "покупки"
 type Tag struct {
-	id          int64  // Уникальный идентификатор тега
-	Tagname     string `json:"tagname"`     // Название тега
-	IsGenerated bool   `json:"isGenerated"` // Флаг: создана ли сущность сервисом
+	ID          int64  `db:"id" json:"id"`                     // Уникальный идентификатор тега
+	Tagname     string `db:"tagname" json:"tagname"`           // Название тега
+	IsGenerated bool   `db:"is_generated" json:"is_generated"` // Флаг: создана ли сущность сервисом
+	Description string `db:"description" json:"description"`   // Описание тега
 }
 
 // NewTag() создаёт новый тег с заданным именем
@@ -246,44 +198,18 @@ func NewTag(tagname string) *Tag {
 	return &Tag{
 		Tagname:     tagname,
 		IsGenerated: true, // Создана сервисом
+		Description: "",
 	}
-}
-
-// Возвращает идентификатор тега
-func (t *Tag) ID() interface{} {
-	return t.id
-}
-
-// Реализация интерфейс json.Marshaler
-func (n *Tag) MarshalJSON() ([]byte, error) {
-	var idField interface{}
-	switch v := n.ID().(type) {
-	case int64:
-		idField = v
-	case string:
-		idField = v
-	default:
-		return nil, fmt.Errorf("неподдерживаемый тип ID: %T", v)
-	}
-
-	type Alias Tag
-	return json.Marshal(&struct {
-		ID interface{} `json:"id"`
-		*Alias
-	}{
-		ID:    idField,
-		Alias: (*Alias)(n),
-	})
-}
-
-// Устанавливает идентификатор тега
-func (t *Tag) SetID(id int64) {
-	t.id = id
 }
 
 // Обновляет название тега
 func (t *Tag) SetTagname(tagname string) {
 	t.Tagname = tagname
+}
+
+// Устанавливает описание тега
+func (t *Tag) SetDescription(desc string) {
+	t.Description = desc
 }
 
 // Возвращает тип сущности для интерфейса Entity

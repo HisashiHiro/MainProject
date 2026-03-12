@@ -109,6 +109,8 @@ func HandlePostItem(noteService service.NoteService) gin.HandlerFunc {
 				Content:  note.Content,
 				Tags:     note.Tags,
 				IsPublic: note.IsPublic,
+				Priority: note.Priority,
+				Category: note.Category,
 			},
 		)
 		if err != nil {
@@ -216,6 +218,8 @@ func HandlePutItem(noteService service.NoteService) gin.HandlerFunc {
 				Content:  updated.Content,
 				Tags:     updated.Tags,
 				IsPublic: updated.IsPublic,
+				Priority: updated.Priority,
+				Category: updated.Category,
 			},
 		)
 		if err != nil {

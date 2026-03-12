@@ -17,6 +17,7 @@ import (
 	"MainProject/internal/repository"
 	"MainProject/internal/service"
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"net"
@@ -32,6 +33,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/joho/godotenv"
+	goose "github.com/pressly/goose/v3"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 
@@ -50,10 +52,36 @@ func LoadEnv() error {
 	return nil
 }
 
+func runMigrations() error {
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		return fmt.Errorf("DATABASE_URL not set")
+	}
+
+	// Подключаемся к БД (для миграций)
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	// Указываем директорию с миграциями
+	if err := goose.Up(db, "./migrations"); err != nil {
+		return err
+	}
+	log.Println("Migrations applied successfully")
+	return nil
+}
+
 func main() {
 	// Загрузка .env
 	if err := LoadEnv(); err != nil {
 		log.Fatalf("Ошибка загрузки .env: %v", err)
+	}
+
+	// Применяем миграции
+	if err := runMigrations(); err != nil {
+		log.Fatalf("Migration failed: %v", err)
 	}
 
 	// Проверяем обязательные переменные окружения
@@ -80,7 +108,7 @@ func main() {
 	// Создание репозиториЯ, передача контекста и WaitGroup
 	repo := repository.NewRepository(ctx, &wg)
 	if repo == nil {
-		log.Fatalf("Не удалось инициализировать хранилище (MongoDB/Redis). Проверьте переменные окружения и доступность контейнеров.")
+		log.Fatalf("Не удалось инициализировать хранилище (PostgreSQL/Redis). Проверьте переменные окружения и доступность контейнеров.")
 	}
 
 	// Сервис заметок поверх репозитория

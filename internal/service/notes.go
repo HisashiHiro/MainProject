@@ -13,6 +13,8 @@ type NoteRepository interface {
 	// CreateNote сохраняет заметку и возвращает сгенерированный ID
 	// Реализация может использовать авто-инкремент (счётчики) или другой механизм
 	CreateNote(ctx context.Context, note *model.Note) (int64, error)
+	// CreateNoteWithTags создаёт заметку вместе с тегами в одной транзакции
+	CreateNoteWithTags(ctx context.Context, note *model.Note, tags []string) (int64, error)
 	// FindNoteByID возвращает заметку и флаг found.
 	FindNoteByID(ctx context.Context, id int64) (*model.Note, bool, error)
 	// UpdateNote заменяет заметку целиком (по note.ID())
@@ -45,6 +47,8 @@ type CreateNoteInput struct {
 	Content  string
 	Tags     []string
 	IsPublic bool
+	Priority int
+	Category string
 }
 
 // UpdateNoteInput — входные данные для обновления заметки
@@ -53,6 +57,8 @@ type UpdateNoteInput struct {
 	Content  string
 	Tags     []string
 	IsPublic bool
+	Priority int
+	Category string
 }
 
 type noteServiceImpl struct {
@@ -88,12 +94,15 @@ func (s *noteServiceImpl) CreateNote(ctx context.Context, input CreateNoteInput)
 	now := time.Now()
 	note.CreatedAt = now
 	note.UpdatedAt = now
+	note.Priority = input.Priority
+	note.Category = input.Category
 
-	id, err := s.repo.CreateNote(ctx, note)
+	// Используем транзакционный метод для сохранения заметки с тегами
+	id, err := s.repo.CreateNoteWithTags(ctx, note, input.Tags)
 	if err != nil {
 		return nil, err
 	}
-	note.SetID(id)
+	note.ID = id
 
 	return note, nil
 }
