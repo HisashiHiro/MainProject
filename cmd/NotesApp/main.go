@@ -24,7 +24,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
@@ -40,6 +39,8 @@ import (
 	pb "MainProject/api/proto"
 	mygrpc "MainProject/internal/grpc"
 
+	"github.com/gin-contrib/sessions"
+	"github.com/gin-contrib/sessions/cookie"
 	"google.golang.org/grpc"
 )
 
@@ -57,15 +58,11 @@ func runMigrations() error {
 	if dbURL == "" {
 		return fmt.Errorf("DATABASE_URL not set")
 	}
-
-	// Подключаемся к БД (для миграций)
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
-
-	// Указываем директорию с миграциями
 	if err := goose.Up(db, "./migrations"); err != nil {
 		return err
 	}
@@ -75,7 +72,7 @@ func runMigrations() error {
 
 func main() {
 	// Загрузка .env
-	if err := LoadEnv(); err != nil {
+	if err := LoadEnv(); err != nil && !os.IsNotExist(err) {
 		log.Fatalf("Ошибка загрузки .env: %v", err)
 	}
 
@@ -85,7 +82,7 @@ func main() {
 	}
 
 	// Проверяем обязательные переменные окружения
-	requiredEnvVars := []string{"JWT_SECRET", "LOGIN", "PASSWORD"}
+	requiredEnvVars := []string{"JWT_SECRET", "SESSION_SECRET"}
 	for _, envVar := range requiredEnvVars {
 		if os.Getenv(envVar) == "" {
 			log.Fatalf("Требуется установить переменную окружения: %s", envVar)
@@ -97,27 +94,54 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel() // Гарантируем вызов cancel() при выходе из main()
 
-	// Группа для отслеживания завершения горутин
-	var wg sync.WaitGroup
-
 	// Канал для перехвата системных сигналов (Ctrl+C, kill и т.п.)
 	sigChan := make(chan os.Signal, 1)
 	// Регистрация сигналов, которые нужно перехватывать
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// Создание репозиториЯ, передача контекста и WaitGroup
-	repo := repository.NewRepository(ctx, &wg)
-	if repo == nil {
-		log.Fatalf("Не удалось инициализировать хранилище (PostgreSQL/Redis). Проверьте переменные окружения и доступность контейнеров.")
+	// ------- ВЫБОР ХРАНИЛИЩА ---------------------------
+	dbType := os.Getenv("DB_TYPE")
+	if dbType == "" {
+		dbType = "postgres" // значение по умолчанию
 	}
 
-	// Сервис заметок поверх репозитория
-	noteService := service.NewNoteService(repo)
+	var repo interface{}
+	switch dbType {
+	case "postgres":
+		repo = repository.NewPostgresRepository(ctx)
+		if repo == nil {
+			log.Fatalf("Не удалось инициализировать PostgreSQL")
+		}
+		defer repo.(*repository.PostgresRepository).Close(ctx)
+	case "mongo":
+		repo = repository.NewMongoRepository(ctx)
+		if repo == nil {
+			log.Fatalf("Не удалось инициализировать MongoDB")
+		}
+		defer repo.(*repository.MongoRepository).Close(ctx)
+	default:
+		log.Fatalf("Неизвестный тип БД: %s", dbType)
+	}
 
-	// Создание и запуск gRPC сервера
+	// Инициализация сервисов
+	var noteRepo service.NoteRepository
+	var userRepo service.UserRepository
+	switch dbType {
+	case "postgres":
+		noteRepo = repo.(*repository.PostgresRepository)
+		userRepo = repo.(*repository.PostgresRepository)
+	case "mongo":
+		noteRepo = repo.(*repository.MongoRepository)
+		userRepo = repo.(*repository.MongoRepository)
+	}
+
+	noteService := service.NewNoteService(noteRepo) // Сервис заметок
+	userService := service.NewUserService(userRepo) // Сервис пользователей
+
+	// =========== gRPC сервер ===========
+	grpcStop := make(chan struct{}) //Канал для отслеживания завершения сервера
 	go func() {
-		// Создание TCP listener
-		lis, err := net.Listen("tcp", ":50051")
+		lis, err := net.Listen("tcp", ":50051") // Создание TCP listener
 		if err != nil {
 			log.Fatalf("Ошибка при создании listener: %v", err)
 		}
@@ -128,101 +152,114 @@ func main() {
 		// Регистрация сервиса заметок
 		notesServer := mygrpc.NewNotesServer(noteService)
 		pb.RegisterNotesServiceServer(s, notesServer)
-
 		log.Println("Запуск gRPC сервера на :50051")
-		if err := s.Serve(lis); err != nil {
-			log.Fatalf("Ошибка при запуске gRPC сервера: %v", err)
-		}
+		go func() {
+			// Запуск внутренней горутины с s.Serve(), которая закрывает grpcStop при завершении
+			if err := s.Serve(lis); err != nil {
+				log.Printf("gRPC сервер остановлен: %v", err)
+			}
+			close(grpcStop)
+		}()
+		<-ctx.Done() // Ожидаем сигнала остановки
+		log.Println("Остановка gRPC сервера...")
+		s.GracefulStop() // Вызов корректного завершения активных RPC
 	}()
 
-	// Создание сервиса Планировщик, передача ему репозитория и WaitGroup
-	scheduler := service.NewSchedulerService(repo, &wg)
-
-	// Запуск планировщика в горутине
-	wg.Add(1) // Регистрация горутины планировщика
-	// Планировщик (каждые 5 сек генерирует сущности и отправляет их в канал репозитория)
-	go func() {
-		scheduler.Run(ctx, 5*time.Second)
-		wg.Done() // Завершение
-	}()
-
+	// ========== HTTP сервер (Gin) ==========
 	// Gin-маршрутизация
 	r := gin.Default()
+	// Настройка сессий (используем cookie store)
+	store := cookie.NewStore([]byte(os.Getenv("SESSION_SECRET")))
+	r.Use(sessions.Sessions("notes-session", store))
 
-	// Public routes
-	r.POST("/login", handlers.HandleLogin)
+	// Загружаем HTML-шаблоны из папки templates
+	r.LoadHTMLGlob("templates/*")
 
-	// Protected routes (требуют JWT)
-	authorized := r.Group("/")
-	authorized.Use(JWTMiddleware())
+	// Публичные веб-маршруты
+	r.GET("/register", handlers.HandleWebRegisterPage)
+	r.POST("/register", handlers.HandleWebRegister(userService))
+	r.GET("/login", handlers.HandleWebLoginPage)
+	r.POST("/login", handlers.HandleWebLogin(userService))
+	r.GET("/logout", handlers.HandleWebLogout)
+
+	// Защищённые веб-маршруты
+	webAuth := r.Group("/")
+	webAuth.Use(handlers.WebAuthMiddleware())
 	{
-		authorized.POST("/api/item", handlers.HandlePostItem(noteService))
-		authorized.PUT("/api/item/:id", handlers.HandlePutItem(noteService))
-		authorized.DELETE("/api/item/:id", handlers.HandleDeleteItem(noteService))
+		webAuth.GET("/", handlers.HandleWebIndex(noteService))
+		webAuth.GET("/notes/new", handlers.HandleWebNewNote)
+		webAuth.POST("/notes", handlers.HandleWebCreateNote(noteService))
+		webAuth.GET("/notes/:id", handlers.HandleWebViewNote(noteService))
+		webAuth.GET("/notes/:id/edit", handlers.HandleWebEditNote(noteService))
+		webAuth.POST("/notes/:id", handlers.HandleWebUpdateNote(noteService))
+		webAuth.POST("/notes/:id/delete", handlers.HandleWebDeleteNote(noteService))
 	}
 
-	// Public GET
-	r.GET("/api/item/:id", handlers.HandleGetItem(noteService))
-	r.GET("/api/items", handlers.HandleGetItems(noteService))
+	// Публичные API
+	apiPublic := r.Group("/api")
+	{
+		apiPublic.POST("/register", handlers.HandleRegister(userService))
+		apiPublic.POST("/login", handlers.HandleLogin(userService))
+		apiPublic.GET("/item/:id", handlers.HandleGetItem(noteService))
+		apiPublic.GET("/items", handlers.HandleGetItems(noteService))
+	}
 
-	// Swagger
+	// Защищённые API (требуют JWT)
+	apiAuth := r.Group("/api")
+	apiAuth.Use(handlers.JWTMiddleware())
+	{
+		apiAuth.POST("/item", handlers.HandlePostItem(noteService))
+		apiAuth.PUT("/item/:id", handlers.HandlePutItem(noteService))
+		apiAuth.DELETE("/item/:id", handlers.HandleDeleteItem(noteService))
+	}
+
+	// Swagger документация
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
-	// HTTP‑сервер
+	// HTTP-сервер
 	httpServer := &http.Server{
-		Addr:    ":8080", // Порт 8080
-		Handler: r,       // Маршрутизация запросов
+		Addr:    ":8080",
+		Handler: r,
 	}
 
 	// Запуск сервера в отдельной горутине
+	httpStop := make(chan struct{}) //Канал для отслеживания завершения сервера
 	go func() {
 		log.Println("Запуск HTTP-сервера на :8080")
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Ошибка при запуске сервера: %v", err)
+			log.Printf("HTTP сервер остановлен: %v", err)
 		}
+		close(httpStop)
 	}()
 
 	// Блокировка в режииме ожидания сигнала ОС (например, Ctrl+C)
 	<-sigChan
 	println("Получен сигнал завершения. Начинается плавное завершение приложения...")
+	cancel() // Отмена контекста. Сигнал для всех горутин о необходимости завершиться
 
-	// Отмена контекста. Сигнал для всех горутин о необходимости завершиться
-	cancel()
+	// Остановка HTTP сервера
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Ошибка при завершении HTTP-сервера: %v", err)
+	}
 
-	// Ожидание, пока processEntities() обработает оставшиеся данные
-	// 2 секунды на обработку буфера канала
-	log.Println("Ожидание завершения обработки оставшихся данных...")
-	time.Sleep(2 * time.Second)
-
-	// Cохранение всех данных перед выходом
-	log.Println("Сохранение данных перед завершением...")
-
-	// Ожидание завершения всех горутин (до 10 сек)
-	done := make(chan struct{})
-	go func() {
-		wg.Wait()   // Блокировка до тех пор, пока все горутины не вызовут wg.Done()
-		close(done) // Сигнало о завершении всех горутин
-	}()
+	// Ожидание завершения серверов (максимум 10 секунд)
+	select {
+	case <-grpcStop:
+		log.Println("gRPC сервер остановлен")
+	case <-time.After(10 * time.Second):
+		log.Println("Таймаут при остановке gRPC сервера")
+	}
 
 	select {
-	// Сигнал о завершении всех горутин (канал done закрыт)
-	case <-done:
-		println("Все горутины завершены успешно.")
-	// Таймаут в 10 секунд (если какие-то горутины зависли)
+	case <-httpStop:
+		log.Println("HTTP сервер остановлен")
 	case <-time.After(10 * time.Second):
-		println("Graceful shutdown timeout. Принудительное завершение.")
+		log.Println("Таймаут при остановке HTTP сервера")
 	}
 
-	// После выхода из select main() завершается,
-	// что приводит к остановке всего приложения
-
-	// Пытаемся корректно остановить HTTP‑сервер
-	if err := httpServer.Shutdown(ctx); err != nil {
-		log.Printf("Ошибка при завершении сервера: %v", err)
-	}
-
-	// После остановки воркеров/сервера можно закрывать соединения к БД и Redis.
-	repo.Close(ctx)
+	log.Println("Приложение завершено.")
 
 }
 

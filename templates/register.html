@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Регистрация</title>
+    <style>
+        body { font-family: Arial; margin: 40px; }
+        .error { color: red; }
+        form { max-width: 300px; }
+        label { display: block; margin-top: 10px; }
+        input { width: 100%; padding: 5px; }
+        button { margin-top: 20px; padding: 8px 16px; }
+    </style>
+</head>
+<body>
+    <h1>Регистрация</h1>
+    {{ if .Error }}
+        <p class="error">{{ .Error }}</p>
+    {{ end }}
+    <form method="POST" action="/register">
+        <label>Имя пользователя:</label>
+        <input type="text" name="username" value="{{ .Username }}" required minlength="3">
+        <label>Email:</label>
+        <input type="email" name="email" value="{{ .Email }}" required>
+        <label>Пароль:</label>
+        <input type="password" name="password" required minlength="6">
+        <button type="submit">Зарегистрироваться</button>
+    </form>
+    <p>Уже есть аккаунт? <a href="/login">Войти</a></p>
+</body>
+</html>
