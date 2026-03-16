@@ -14,11 +14,18 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 )
 
+// RegisterRequest структура для запроса регистрации
+type RegisterRequest struct {
+	Username string `json:"username" example:"john" validate:"required,min=3,max=50"`
+	Email    string `json:"email" example:"john@example.com" validate:"required,email"`
+	Password string `json:"password" example:"secret" validate:"required,min=6"`
+}
+
 // LoginRequest структура для запроса авторизации
 // @Description Структура для передачи учетных данных
 type LoginRequest struct {
-	Login    string `json:"login" example:"admin" validate:"required,min=3,max=50"`
-	Password string `json:"password" example:"secret" validate:"required,min=6"`
+	Login    string `json:"login" example:"admin" validate:"required"`
+	Password string `json:"password" example:"secret" validate:"required"`
 }
 
 // SuccessResponse структура для успешного ответа с токеном
@@ -31,9 +38,50 @@ type ErrorResponse struct {
 	Error string `json:"error" example:"error message"`
 }
 
-// HandleLogin обрабатывает POST /login, проверяет credentials и выдаёт JWT
+// HandleRegister обрабатывает POST /api/register
+// @Summary Регистрация
+// @Description Создаёт нового пользователя
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param request body RegisterRequest true "Данные регистрации"
+// @Success 201 {object} SuccessResponse
+// @Failure 400 {object} ErrorResponse
+// @Failure 409 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /api/register [post]
+func HandleRegister(userService service.UserService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req RegisterRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+			return
+		}
+
+		user, err := userService.Register(c.Request.Context(), req.Username, req.Email, req.Password)
+		if err != nil {
+			if err == service.ErrUserAlreadyExists {
+				c.JSON(http.StatusConflict, gin.H{"error": "User already exists"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to register user"})
+			return
+		}
+
+		// Генерируем JWT токен для нового пользователя (опционально)
+		token, err := generateJWT(user.ID, user.Username)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+			return
+		}
+
+		c.JSON(http.StatusCreated, gin.H{"token": token})
+	}
+}
+
+// HandleLogin обрабатывает POST /api/login
 // @Summary Авторизация
-// @Description Получает JWT-токен по логину и паролю из переменных окружения LOGIN и PASSWORD
+// @Description Возвращает JWT-токен по логину/email и паролю
 // @Tags auth
 // @Accept json
 // @Produce json
@@ -42,43 +90,96 @@ type ErrorResponse struct {
 // @Failure 400 {object} ErrorResponse
 // @Failure 401 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
-// @Router /login [post]
-func HandleLogin(c *gin.Context) {
-	var creds LoginRequest
-	if err := c.ShouldBindJSON(&creds); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
-		return
-	}
+// @Router /api/login [post]
+func HandleLogin(userService service.UserService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req LoginRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+			return
+		}
 
-	// Проверка логина из переменных окружения
-	if creds.Login != os.Getenv("LOGIN") {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid login"})
-		return
-	}
+		user, err := userService.Login(c.Request.Context(), req.Login, req.Password)
+		if err != nil {
+			if err == service.ErrInvalidCredentials {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Login failed"})
+			return
+		}
 
-	// Проверка пароля из переменных окружения
-	// В продакшене следует использовать хеширование (bcrypt.CompareHashAndPassword)
-	if creds.Password != os.Getenv("PASSWORD") {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid password"})
-		return
-	}
+		token, err := generateJWT(user.ID, user.Username)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+			return
+		}
 
-	// Создание JWT токена
+		c.JSON(http.StatusOK, gin.H{"token": token})
+	}
+}
+
+// generateJWT создаёт JWT токен для пользователя
+func generateJWT(userID int64, username string) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"login": creds.Login,
-		"exp":   time.Now().Add(time.Hour * 24).Unix(), // Срок действия 24 часа
-		"iat":   time.Now().Unix(),                     // Время выдачи
-		"iss":   "notes-app",                           // Издатель
+		"user_id": userID,
+		"login":   username,
+		"exp":     time.Now().Add(time.Hour * 24).Unix(),
+		"iat":     time.Now().Unix(),
+		"iss":     "notes-app",
 	})
+	return token.SignedString([]byte(GetJWTSecret()))
+}
 
-	// Подпись токена с использованием секретного ключа из переменных окружения
-	tokenString, err := token.SignedString([]byte(os.Getenv("JWT_SECRET")))
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
-		return
+// GetJWTSecret возвращает секрет из переменной окружения
+func GetJWTSecret() string {
+	return os.Getenv("JWT_SECRET")
+}
+
+// JWTMiddleware — middleware для проверки JWT
+func JWTMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})
+			c.Abort()
+			return
+		}
+
+		tokenString := authHeader
+		if len(tokenString) > 7 && tokenString[:7] == "Bearer " {
+			tokenString = tokenString[7:]
+		}
+
+		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, http.ErrAbortHandler
+			}
+			return []byte(GetJWTSecret()), nil
+		})
+
+		if err != nil || !token.Valid {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
+			c.Abort()
+			return
+		}
+
+		if claims, ok := token.Claims.(jwt.MapClaims); ok {
+			if userID, ok := claims["user_id"].(float64); ok {
+				c.Set("userID", int64(userID))
+			} else {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token claims"})
+				c.Abort()
+				return
+			}
+		} else {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
+			c.Abort()
+			return
+		}
+
+		c.Next()
 	}
-
-	c.JSON(http.StatusOK, gin.H{"token": tokenString})
 }
 
 // HandlePostItem создаёт новую заметку
@@ -96,6 +197,7 @@ func HandleLogin(c *gin.Context) {
 // @Router /api/item [post]
 func HandlePostItem(noteService service.NoteService) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		userID := c.GetInt64("userID")
 		var note model.Note
 		if err := c.ShouldBindJSON(&note); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Неверный JSON"})
@@ -104,6 +206,7 @@ func HandlePostItem(noteService service.NoteService) gin.HandlerFunc {
 
 		created, err := noteService.CreateNote(
 			c.Request.Context(),
+			userID,
 			service.CreateNoteInput{
 				Title:    note.Title,
 				Content:  note.Content,
@@ -141,6 +244,7 @@ func HandlePostItem(noteService service.NoteService) gin.HandlerFunc {
 // @Router /api/item/{id} [get]
 func HandleGetItem(noteService service.NoteService) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		userID := c.GetInt64("userID")
 		idStr := c.Param("id")
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
@@ -148,7 +252,7 @@ func HandleGetItem(noteService service.NoteService) gin.HandlerFunc {
 			return
 		}
 
-		note, err := noteService.GetNote(c.Request.Context(), id)
+		note, err := noteService.GetNote(c.Request.Context(), userID, id)
 		if err != nil {
 			if err == service.ErrNoteNotFound {
 				c.JSON(http.StatusNotFound, gin.H{"error": "Заметка не найдена"})
@@ -171,7 +275,8 @@ func HandleGetItem(noteService service.NoteService) gin.HandlerFunc {
 // @Router /api/items [get]
 func HandleGetItems(noteService service.NoteService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		notes, err := noteService.ListNotes(c.Request.Context())
+		userID := c.GetInt64("userID")
+		notes, err := noteService.ListNotes(c.Request.Context(), userID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка при получении списка заметок"})
 			return
@@ -197,6 +302,7 @@ func HandleGetItems(noteService service.NoteService) gin.HandlerFunc {
 // @Router /api/item/{id} [put]
 func HandlePutItem(noteService service.NoteService) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		userID := c.GetInt64("userID")
 		idStr := c.Param("id")
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
@@ -212,6 +318,7 @@ func HandlePutItem(noteService service.NoteService) gin.HandlerFunc {
 
 		note, err := noteService.UpdateNote(
 			c.Request.Context(),
+			userID,
 			id,
 			service.UpdateNoteInput{
 				Title:    updated.Title,
@@ -251,6 +358,7 @@ func HandlePutItem(noteService service.NoteService) gin.HandlerFunc {
 // @Router /api/item/{id} [delete]
 func HandleDeleteItem(noteService service.NoteService) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		userID := c.GetInt64("userID")
 		idStr := c.Param("id")
 		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
@@ -258,7 +366,7 @@ func HandleDeleteItem(noteService service.NoteService) gin.HandlerFunc {
 			return
 		}
 
-		if err := noteService.DeleteNote(c.Request.Context(), id); err != nil {
+		if err := noteService.DeleteNote(c.Request.Context(), userID, id); err != nil {
 			switch err {
 			case service.ErrNoteNotFound:
 				c.JSON(http.StatusNotFound, gin.H{"error": "Заметка не найдена"})

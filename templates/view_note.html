@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ .Note.Title }}</title>
+</head>
+<body>
+    <h1>{{ .Note.Title }}</h1>
+    <p><strong>Создано:</strong> {{ .Note.CreatedAt.Format "02.01.2006 15:04" }}</p>
+    <p><strong>Обновлено:</strong> {{ .Note.UpdatedAt.Format "02.01.2006 15:04" }}</p>
+    <p><strong>Теги:</strong> {{ .TagsAsStr }}</p>
+    {{ if .Note.ExpiresAt }}
+    <p><strong>Срок давности:</strong> {{ .Note.ExpiresAt.Format "02.01.2006 15:04" }}</p>
+    {{ end }}
+    <p><strong>Публичная:</strong> {{ if .Note.IsPublic }}Да{{ else }}Нет{{ end }}</p>
+    <hr>
+    <p>{{ .Note.Content }}</p>
+    <hr>
+    <a href="/notes/{{ .Note.ID }}/edit">✏️ Редактировать</a>
+    <form action="/notes/{{ .Note.ID }}/delete" method="POST" style="display:inline;">
+        <button type="submit" onclick="return confirm('Удалить заметку?')">🗑️ Удалить</button>
+    </form>
+    <br><br>
+    <a href="/">← Назад к списку</a>
+</body>
+</html>

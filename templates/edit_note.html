@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Редактировать заметку</title>
+</head>
+<body>
+    <h1>Редактировать заметку</h1>
+    {{ if .Error }}
+        <p style="color:red">{{ .Error }}</p>
+    {{ end }}
+    <form method="POST" action="/notes/{{ .Note.ID }}">
+        <label>Заголовок:</label><br>
+        <input type="text" name="title" value="{{ .Note.Title }}" required><br>
+        <label>Содержимое:</label><br>
+        <textarea name="content" required>{{ .Note.Content }}</textarea><br>
+        <label>Теги (через запятую):</label><br>
+        <input type="text" name="tags" value="{{ .TagsAsStr }}"><br>
+        <label>
+            <input type="checkbox" name="is_public" {{ if .Note.IsPublic }}checked{{ end }}> Публичная
+        </label><br><br>
+        <button type="submit">Обновить</button>
+        <a href="/notes/{{ .Note.ID }}">Отмена</a>
+    </form>
+</body>
+</html>

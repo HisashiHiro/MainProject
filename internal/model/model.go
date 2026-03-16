@@ -11,26 +11,29 @@ type Entity interface {
 
 // Note — модель заметки
 type Note struct {
-	ID          int64     `db:"id" json:"id"`                     // Уникальный идентификатор заметки
-	Title       string    `db:"title" json:"title"`               // Заголовок заметки
-	Content     string    `db:"content" json:"content"`           // Основное содержимое
-	CreatedAt   time.Time `db:"created_at" json:"created_at"`     // Дата/Время создания
-	UpdatedAt   time.Time `db:"updated_at" json:"updated_at"`     // Дата/Время обновления
-	Tags        []string  `db:"-" json:"tags"`                    // Список тегов
-	IsPublic    bool      `db:"is_public" json:"is_public"`       // Флаг публичности заметки (Нет/Да)
-	IsGenerated bool      `db:"is_generated" json:"is_generated"` // Флаг: создана ли сущность сервисом
-	Priority    int       `db:"priority" json:"priority"`         // Приоритет заметки
-	Category    string    `db:"category" json:"category"`         // Категория
+	ID          int64      `db:"id" json:"id"`                     // Уникальный идентификатор заметки
+	UserID      int64      `db:"user_id" json:"user_id"`           // ID владельца заметки
+	Title       string     `db:"title" json:"title"`               // Заголовок заметки
+	Content     string     `db:"content" json:"content"`           // Основное содержимое
+	CreatedAt   time.Time  `db:"created_at" json:"created_at"`     // Дата/Время создания
+	UpdatedAt   time.Time  `db:"updated_at" json:"updated_at"`     // Дата/Время обновления
+	ExpiresAt   *time.Time `db:"expires_at" json:"expires_at"`     // Срок давности заметки
+	Tags        []string   `db:"-" json:"tags"`                    // Список тегов
+	IsPublic    bool       `db:"is_public" json:"is_public"`       // Флаг публичности заметки (Нет/Да)
+	IsGenerated bool       `db:"is_generated" json:"is_generated"` // Флаг: создана ли сущность сервисом
+	Priority    int        `db:"priority" json:"priority"`         // Приоритет заметки
+	Category    string     `db:"category" json:"category"`         // Категория
 }
 
 // NewNote() создаёт новую заметку с заданными параметрами
 // Устанавливает текущие значения createdAt и updatedAt
-func NewNote(title, content string, tags []string, isPublic bool) *Note {
+func NewNote(title, content string, tags []string, isPublic bool, expiresAt *time.Time) *Note {
 	return &Note{
 		Title:       title,
 		Content:     content,
 		Tags:        tags,
 		IsPublic:    isPublic,
+		ExpiresAt:   expiresAt,
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 		IsGenerated: true, // Создана сервисом
@@ -75,6 +78,12 @@ func (n *Note) SetCategory(category string) {
 	n.UpdatedAt = time.Now()
 }
 
+// SetExpiresAt обновляет срок давности
+func (n *Note) SetExpiresAt(t *time.Time) {
+	n.ExpiresAt = t
+	n.UpdatedAt = time.Now()
+}
+
 // Возвращает тип сущности для интерфейса Entity
 func (n *Note) EntityType() string {
 	return "note"
@@ -83,15 +92,15 @@ func (n *Note) EntityType() string {
 // ---------------------------------------------------------------
 // User — модель пользователя
 type User struct {
-	ID           int64     `db:"id" json:"id"`                       // Уникальный идентификатор пользователя
-	Username     string    `db:"username" json:"username"`           // Логин пользователя
-	Email        string    `db:"email" json:"email"`                 // Email пользователя
-	PasswordHash []byte    `db:"password_hash" json:"password_hash"` // Хеш пароля
-	CreatedAt    time.Time `db:"created_at" json:"created_at"`       // Дата регистрации
-	LastLogin    time.Time `db:"last_login" json:"last_login"`       // Дата последнего входа
-	IsActive     bool      `db:"is_active" json:"is_active"`         // Статус активности аккаунта
-	IsGenerated  bool      `db:"is_generated" json:"is_generated"`   // Флаг: создана ли сущность сервисом
-	Role         string    `db:"role" json:"role"`                   // Роль пользователя
+	ID           int64      `db:"id" json:"id"`                       // Уникальный идентификатор пользователя
+	Username     string     `db:"username" json:"username"`           // Логин пользователя
+	Email        string     `db:"email" json:"email"`                 // Email пользователя
+	PasswordHash []byte     `db:"password_hash" json:"password_hash"` // Хеш пароля
+	CreatedAt    time.Time  `db:"created_at" json:"created_at"`       // Дата регистрации
+	LastLogin    *time.Time `db:"last_login" json:"last_login"`       // Дата последнего входа
+	IsActive     bool       `db:"is_active" json:"is_active"`         // Статус активности аккаунта
+	IsGenerated  bool       `db:"is_generated" json:"is_generated"`   // Флаг: создана ли сущность сервисом
+	Role         string     `db:"role" json:"role"`                   // Роль пользователя
 }
 
 // NewUser() создаёт нового пользователя с заданными параметрами
@@ -102,6 +111,7 @@ func NewUser(username, email string, passwordHash []byte) *User {
 		Email:        email,
 		PasswordHash: passwordHash,
 		CreatedAt:    time.Now(),
+		LastLogin:    nil,
 		IsActive:     true,
 		IsGenerated:  true, // Создана сервисом
 		Role:         "user",
@@ -114,7 +124,7 @@ func (u *User) SetPasswordHash(hash []byte) {
 }
 
 // Обновляет дату последнего входа
-func (u *User) SetLastLogin(t time.Time) {
+func (u *User) SetLastLogin(t *time.Time) {
 	u.LastLogin = t
 }
 

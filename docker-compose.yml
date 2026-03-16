@@ -13,14 +13,14 @@ services:
     networks:
       - notes_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
       interval: 5s
       timeout: 5s
       retries: 5
 
   redis:
     image: redis:7-alpine
-    container_name: notesapp-redis
+    container_name: notesapp_redis
     restart: unless-stopped
     ports:
       - "6379:6379"
@@ -34,6 +34,37 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: notes_app
+    ports:
+      - "8080:8080"
+      - "50051:50051"
+    environment:
+      # Переопределяем адреса для подключения к контейнерам (используем интерполяцию Compose)
+      - DATABASE_URL=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      - REDIS_ADDR=redis:6379
+      # Указываем тип БД (по умолчанию postgres)
+      - DB_TYPE=${DB_TYPE:-postgres}
+      # Пробрасываем остальные переменные из .env
+      - JWT_SECRET=${JWT_SECRET}
+      - SESSION_SECRET=${SESSION_SECRET}
+      - LOGIN=${LOGIN}
+      - PASSWORD=${PASSWORD}
+      - GIN_MODE=${GIN_MODE:-debug}
+      - MONGO_URI=${MONGO_URI:-mongodb://localhost:27017}  # если используется MongoDB
+      - MONGO_DB=${MONGO_DB:-notes_app}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_AUDIT_TTL=${REDIS_AUDIT_TTL:-168h}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - notes_network
 
 volumes:
   postgres_data:

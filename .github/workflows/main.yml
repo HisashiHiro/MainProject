@@ -1,0 +1,54 @@
+name: MainProject
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  lint-test-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout репозитория
+        uses: actions/checkout@v4
+
+      - name: Установка Go (версия 1.21, но можно любую не ниже 1.14)
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+          check-latest: true
+
+      - name: Кэширование модулей Go
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Установка зависимостей
+        run: go mod download
+
+      - name: Установка golangci-lint (последняя версия)
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin latest
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
+      - name: Запуск линтера с конфигом .golangci.yml
+        run: golangci-lint run --config .golangci.yml ./...
+
+      - name: Запуск юнит-тестов с детектором гонок (100 прогонов)
+        run: go test -race -count 100 ./...
+
+      - name: Сборка бинарного файла сервиса
+        run: go build -o notes-app ./cmd/main.go
+
+      - name: Сохранение артефакта сборки (опционально)
+        uses: actions/upload-artifact@v4
+        with:
+          name: notes-app
+          path: notes-app

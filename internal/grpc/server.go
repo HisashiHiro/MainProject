@@ -31,7 +31,12 @@ func NewNotesServer(svc service.NoteService) *NotesServer {
 func (s *NotesServer) CreateNote(ctx context.Context, req *pb.CreateNoteRequest) (*pb.NoteResponse, error) {
 	log.Printf("Получен запрос на создание заметки: %s", req.Title)
 
-	note, err := s.svc.CreateNote(ctx, service.CreateNoteInput{
+	userID, ok := ctx.Value("user_id").(int64)
+	if !ok {
+		return nil, status.Errorf(codes.Unauthenticated, "user_id not found in context")
+	}
+
+	note, err := s.svc.CreateNote(ctx, userID, service.CreateNoteInput{
 		Title:    req.Title,
 		Content:  req.Content,
 		Tags:     req.Tags,
@@ -52,7 +57,12 @@ func (s *NotesServer) CreateNote(ctx context.Context, req *pb.CreateNoteRequest)
 func (s *NotesServer) GetNote(ctx context.Context, req *pb.GetNoteRequest) (*pb.NoteResponse, error) {
 	log.Printf("Получен запрос на получение заметки с ID: %d", req.Id)
 
-	note, err := s.svc.GetNote(ctx, req.Id)
+	userID, ok := ctx.Value("user_id").(int64)
+	if !ok {
+		return nil, status.Errorf(codes.Unauthenticated, "user_id not found in context")
+	}
+
+	note, err := s.svc.GetNote(ctx, userID, req.Id)
 	if err != nil {
 		if err == service.ErrNoteNotFound {
 			return nil, status.Errorf(codes.NotFound, "note %d not found", req.Id)
@@ -68,7 +78,12 @@ func (s *NotesServer) GetNote(ctx context.Context, req *pb.GetNoteRequest) (*pb.
 func (s *NotesServer) ListNotes(ctx context.Context, req *pb.ListNotesRequest) (*pb.ListNotesResponse, error) {
 	log.Println("Получен запрос на получение списка заметок")
 
-	entities, err := s.svc.ListNotes(ctx)
+	userID, ok := ctx.Value("user_id").(int64)
+	if !ok {
+		return nil, status.Errorf(codes.Unauthenticated, "user_id not found in context")
+	}
+
+	entities, err := s.svc.ListNotes(ctx, userID)
 	if err != nil {
 		log.Printf("Ошибка при получении списка заметок: %v", err)
 		return nil, status.Errorf(codes.Internal, "failed to list notes")
@@ -90,7 +105,12 @@ func (s *NotesServer) ListNotes(ctx context.Context, req *pb.ListNotesRequest) (
 func (s *NotesServer) UpdateNote(ctx context.Context, req *pb.UpdateNoteRequest) (*pb.NoteResponse, error) {
 	log.Printf("Получен запрос на обновление заметки с ID: %d", req.Id)
 
-	updated, err := s.svc.UpdateNote(ctx, req.Id, service.UpdateNoteInput{
+	userID, ok := ctx.Value("user_id").(int64)
+	if !ok {
+		return nil, status.Errorf(codes.Unauthenticated, "user_id not found in context")
+	}
+
+	updated, err := s.svc.UpdateNote(ctx, userID, req.Id, service.UpdateNoteInput{
 		Title:    req.Title,
 		Content:  req.Content,
 		Tags:     req.Tags,
@@ -114,18 +134,24 @@ func (s *NotesServer) UpdateNote(ctx context.Context, req *pb.UpdateNoteRequest)
 func (s *NotesServer) DeleteNote(ctx context.Context, req *pb.DeleteNoteRequest) (*pb.DeleteNoteResponse, error) {
 	log.Printf("Получен запрос на удаление заметки с ID: %d", req.Id)
 
-	err := s.svc.DeleteNote(ctx, req.Id)
-	if err == nil {
+	userID, ok := ctx.Value("user_id").(int64)
+	if !ok {
+		return nil, status.Errorf(codes.Unauthenticated, "user_id not found in context")
+	}
+
+	err := s.svc.DeleteNote(ctx, userID, req.Id)
+	switch err {
+	case nil:
 		return &pb.DeleteNoteResponse{
 			Success: true,
 			Message: "Заметка успешно удалена",
 		}, nil
-	} else if err == service.ErrNoteNotFound {
+	case service.ErrNoteNotFound:
 		return nil, status.Errorf(codes.NotFound, "note %d not found", req.Id)
+	default:
+		log.Printf("Ошибка при удалении заметки: %v", err)
+		return nil, status.Errorf(codes.Internal, "failed to delete note")
 	}
-
-	log.Printf("Ошибка при удалении заметки: %v", err)
-	return nil, status.Errorf(codes.Internal, "failed to delete note")
 }
 
 // Вспомогательная функция для конвертации модели в protobuf ответ

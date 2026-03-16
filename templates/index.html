@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Мои заметки</title>
+    <style>
+        body { font-family: Arial; margin: 40px; }
+        .note { border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; }
+        .actions { margin-top: 5px; }
+        .actions a, .actions form { display: inline; }
+        button { background: none; border: none; color: blue; text-decoration: underline; cursor: pointer; }
+        .header { display: flex; justify-content: space-between; align-items: center; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Заметки</h1>
+        <a href="/logout">Выйти</a>
+    </div>
+    <a href="/notes/new">➕ Создать заметку</a>
+    <hr>
+    {{ range .Notes }}
+        <div class="note">
+            <h2><a href="/notes/{{ .ID }}">{{ .Title }}</a></h2>
+            <p>{{ .Content }}</p>
+            <div class="actions">
+                <a href="/notes/{{ .ID }}/edit">✏️ Редактировать</a>
+                <form action="/notes/{{ .ID }}/delete" method="POST" style="display:inline;">
+                    <button type="submit" onclick="return confirm('Удалить заметку?')">🗑️ Удалить</button>
+                </form>
+            </div>
+        </div>
+    {{ else }}
+        <p>Пока нет заметок.</p>
+    {{ end }}
+</body>
+</html>

@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Новая заметка</title>
+    <style>
+        .error { color: red; font-size: 0.9em; margin-top: 5px; }
+        .field-error { border: 1px solid red; }
+    </style>
+</head>
+<body>
+    <h1>Создать заметку</h1>
+    <form method="POST" action="/notes" novalidate>
+        <div>
+            <label>Заголовок*:</label><br>
+            <input type="text" name="title" value="{{ .Title }}" required minlength="1" maxlength="255" class="{{ if .FieldErrors.title }}field-error{{ end }}">
+            {{ if .FieldErrors.title }}<div class="error">{{ .FieldErrors.title }}</div>{{ end }}
+        </div>
+        <div>
+            <label>Содержимое*:</label><br>
+            <textarea name="content" required minlength="1" maxlength="5000" class="{{ if .FieldErrors.content }}field-error{{ end }}">{{ .Content }}</textarea>
+            {{ if .FieldErrors.content }}<div class="error">{{ .FieldErrors.content }}</div>{{ end }}
+        </div>
+        <div>
+            <label>Теги (через запятую):</label><br>
+            <input type="text" name="tags" value="{{ .Tags }}">
+        </div>
+        <div>
+            <label>
+                <input type="checkbox" name="is_public" {{ if .IsPublic }}checked{{ end }}> Публичная
+            </label>
+        </div>
+        {{ if .Error }}
+            <div class="error">{{ .Error }}</div>
+        {{ end }}
+        <br>
+        <button type="submit">Сохранить</button>
+        <a href="/">Отмена</a>
+    </form>
+
+    <script>
+        // Дополнительная проверка на стороне клиента (например, чтобы теги не содержали лишних пробелов)
+        document.querySelector('form').addEventListener('submit', function(e) {
+            const title = document.querySelector('input[name="title"]');
+            const content = document.querySelector('textarea[name="content"]');
+            let hasError = false;
+
+            if (!title.value.trim()) {
+                showError(title, 'Заголовок не может быть пустым');
+                hasError = true;
+            }
+            if (!content.value.trim()) {
+                showError(content, 'Содержимое не может быть пустым');
+                hasError = true;
+            }
+
+            if (hasError) {
+                e.preventDefault();
+            }
+        });
+
+        function showError(element, message) {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error';
+            errorDiv.textContent = message;
+            element.classList.add('field-error');
+            element.parentNode.appendChild(errorDiv);
+        }
+    </script>
+</body>
+</html>
